@@ -137,5 +137,7 @@ def get_item_dao() -> ItemDAO:
         "dynamodb",
         region_name=settings.aws_region,
         endpoint_url=settings.dynamodb_endpoint_url,
+        aws_access_key_id=settings.aws_access_key_id,
+        aws_secret_access_key=settings.aws_secret_access_key,
     )
     return ItemDAO(client=client, table_name=settings.dynamodb_table_name)
