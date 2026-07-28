@@ -37,6 +37,28 @@ class FakeItemDAO:
     def delete_item(self, item_id: str) -> bool:
         return self._store.pop(item_id, None) is not None
 
+class FakeUserDAO:
+    """In-memory stand-in for UserDAO with the same interface."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, Any]] = {}
+
+    def list_users(self) -> list[dict[str, Any]]:
+        return list(self._store.values())
+
+    def get_user(self, user_id: str) -> dict[str, Any] | None:
+        return self._store.get(user_id)
+
+    def put_user(self, user: dict[str, Any]) -> dict[str, Any]:
+        self._store[user["id"]] = user
+        return user
+
+    def update_user(self, user: dict[str, Any]) -> dict[str, Any]:
+        self._store[user["id"]] = user
+        return user
+
+    def delete_user(self, user_id: str) -> bool:
+        return self._store.pop(user_id, None) is not None
 
 class _FakeScanPaginator:
     """Minimal paginator returning all stored items in a single page."""

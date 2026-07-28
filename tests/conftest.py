@@ -13,16 +13,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.dao.item_dao import ItemDAO, get_item_dao
+from app.dao.user_dao import get_user_dao
 from app.main import create_app
-from tests.mocks import FakeDynamoDBClient, FakeItemDAO
+from tests.mocks import FakeDynamoDBClient, FakeItemDAO, FakeUserDAO
 
 
 @pytest.fixture
 def client() -> TestClient:
-    """Return a TestClient wired to a fresh in-memory fake DAO."""
+    """Return a TestClient wired to fresh in-memory fake DAOs."""
     app = create_app()
-    fake_dao = FakeItemDAO()
-    app.dependency_overrides[get_item_dao] = lambda: fake_dao
+
+    fake_item_dao = FakeItemDAO()
+    fake_user_dao = FakeUserDAO()
+
+    app.dependency_overrides[get_item_dao] = lambda: fake_item_dao
+    app.dependency_overrides[get_user_dao] = lambda: fake_user_dao
+
     return TestClient(app)
 
 
