@@ -30,7 +30,7 @@ class UserUpdate(BaseModel):
 
 
 class User(BaseModel):
-    user_id: str
+    id: str
     name: str
     email_info: list[EmailInfo]
     phone: str | None = None
