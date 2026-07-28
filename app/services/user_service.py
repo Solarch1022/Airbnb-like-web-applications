@@ -7,7 +7,7 @@ import uuid
 from fastapi import Depends
 
 from app.dao.user_dao import UserDAO, get_user_dao
-from app.models.user import User, UserCreate
+from app.models.user import User, UserCreate, UserUpdate
 
 
 class UserService:
@@ -35,6 +35,23 @@ class UserService:
         self._dao.put_user(user.model_dump())
 
         return user
+    
+    def update_user(self, user_id: str, payload: UserUpdate,) -> User | None:
+        """Update an existing user and return None if it does not exist."""
+        existing_user = self._dao.get_user(user_id)
+
+        if existing_user is None:
+            return None
+
+        update_data = payload.model_dump(exclude_unset=True)
+
+        updated_data = { **existing_user, **update_data, "id": user_id,}
+
+        updated_user = User(**updated_data)
+        
+        self._dao.update_user(updated_user.model_dump())
+
+        return updated_user
 
     def delete_user(self, user_id: str) -> bool:
         """Delete a user."""

@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
 from app.dao.item_dao import _from_dynamodb_item, _to_dynamodb_item
+from app.models import user
 
 
 class UserDAO:
@@ -49,6 +50,10 @@ class UserDAO:
             Item=_to_dynamodb_item(user),
         )
         return user
+    
+    def update_user(self, user: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing user."""
+        return self.put_user(user)
 
     def delete_user(self, user_id: str) -> bool:
         """Delete a user by id and return True if the user existed."""
