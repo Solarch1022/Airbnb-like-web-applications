@@ -26,7 +26,10 @@ class Settings(BaseSettings):
 
     # AWS DynamoDB
     aws_region: str = "us-east-1"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
     dynamodb_table_name: str = "items"
+    dynamodb_bookings_table_name: str = "bookings"
     # Optional endpoint override (e.g. "http://localhost:8000" for DynamoDB Local).
     dynamodb_endpoint_url: str | None = None
     # Auto-create the DynamoDB table on startup if missing (local/dev only).
