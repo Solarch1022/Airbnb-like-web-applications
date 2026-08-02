@@ -38,6 +38,30 @@ class FakeItemDAO:
         return self._store.pop(item_id, None) is not None
 
 
+class FakePropertyDAO:
+    """In-memory stand-in for PropertyDAO with the same interface."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict] = {}
+
+    def list_properties(self):
+        return list(self._store.values())
+
+    def get_property(self, property_id: str):
+        return self._store.get(property_id)
+
+    def put_property(self, property_data: dict):
+        self._store[property_data["id"]] = property_data
+        return property_data
+
+    def update_property(self, property_data: dict):
+        self._store[property_data["id"]] = property_data
+        return property_data
+
+    def delete_property(self, property_id: str):
+        return self._store.pop(property_id, None) is not None
+
+
 class _FakeScanPaginator:
     """Minimal paginator returning all stored items in a single page."""
 
