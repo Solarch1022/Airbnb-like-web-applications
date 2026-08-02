@@ -13,8 +13,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.dao.item_dao import ItemDAO, get_item_dao
+from app.dao.booking_dao import BookingDAO, get_booking_dao
 from app.main import create_app
-from tests.mocks import FakeDynamoDBClient, FakeItemDAO
+from tests.mocks import FakeDynamoDBClient, FakeItemDAO, FakeBookingDAO
 
 
 @pytest.fixture
@@ -41,4 +42,12 @@ def client_with_ddb_mock(ddb_client: FakeDynamoDBClient) -> TestClient:
     app = create_app()
     dao = ItemDAO(client=ddb_client, table_name="items")
     app.dependency_overrides[get_item_dao] = lambda: dao
+    return TestClient(app)
+
+@pytest.fixture
+def booking_client() -> TestClient:
+    """Return a TestClient wired to a fresh in-memory fake BookingDAO."""
+    app = create_app()
+    fake_dao = FakeBookingDAO()
+    app.dependency_overrides[get_booking_dao] = lambda: fake_dao
     return TestClient(app)

@@ -38,6 +38,30 @@ class FakeItemDAO:
         return self._store.pop(item_id, None) is not None
 
 
+class FakeBookingDAO:
+    """In-memory stand-in for BookingDAO with the same interface."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, dict[str, Any]] = {}
+
+    def list_bookings(self) -> list[dict[str, Any]]:
+        return list(self._store.values())
+
+    def get_booking(self, booking_id: str) -> dict[str, Any] | None:
+        return self._store.get(booking_id)
+
+    def put_booking(self, booking: dict[str, Any]) -> dict[str, Any]:
+        self._store[booking["id"]] = booking
+        return booking
+
+    def update_booking(self, booking: dict[str, Any]) -> dict[str, Any]:
+        self._store[booking["id"]] = booking
+        return booking
+
+    def delete_booking(self, booking_id: str) -> bool:
+        return self._store.pop(booking_id, None) is not None
+
+
 class _FakeScanPaginator:
     """Minimal paginator returning all stored items in a single page."""
 
