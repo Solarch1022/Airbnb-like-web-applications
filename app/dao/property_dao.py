@@ -1,12 +1,3 @@
-"""Data Access Object (DAO) for properties, backed by AWS DynamoDB.
-
-This layer is the only place that talks to DynamoDB via the boto3 client.
-It translates between DynamoDB's attribute-typed item representation and our
-plain Python dicts, keeping the service layer storage-agnostic.
-
-The table is assumed to have a string partition key named ``id``.
-"""
-
 from __future__ import annotations
 
 from decimal import Decimal
