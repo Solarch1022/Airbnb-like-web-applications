@@ -29,8 +29,6 @@ class SignupResponse(BaseModel):
 class EmailVerification(BaseModel):
     """Stored email verification record."""
 
-    id: str
-
     email: EmailStr
 
     code_hash: str = Field(..., min_length=1)
