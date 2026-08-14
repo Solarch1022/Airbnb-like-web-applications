@@ -1,18 +1,22 @@
-"""Data access for accounts stored in DynamoDB."""
-
 from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+import email
+import email
 from enum import Enum
 from functools import lru_cache
 from typing import Any
+from urllib import response
 
 import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
+from app.models import item
+from app.models.account import Account
+from app.routers import items
 
 
 _serializer = TypeSerializer()
@@ -20,7 +24,7 @@ _deserializer = TypeDeserializer()
 
 
 def _prepare_value(value: Any) -> Any:
-    """Convert values that DynamoDB cannot store directly."""
+
     if isinstance(value, datetime):
         return value.isoformat()
 
@@ -34,7 +38,7 @@ def _prepare_value(value: Any) -> Any:
 
 
 def _to_dynamodb_item(data: dict[str, Any]) -> dict[str, Any]:
-    """Convert a plain dictionary to DynamoDB attribute format."""
+
     return {
         key: _serializer.serialize(_prepare_value(value))
         for key, value in data.items()
@@ -43,7 +47,7 @@ def _to_dynamodb_item(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _from_dynamodb_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Convert DynamoDB attribute format to a plain dictionary."""
+
     return {
         key: _deserializer.deserialize(value)
         for key, value in item.items()
@@ -51,14 +55,19 @@ def _from_dynamodb_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 class AccountDAO:
-    """DynamoDB-backed account data access."""
 
-    def __init__(self, client: Any, table_name: str) -> None:
+    def __init__(
+        self, 
+        client: Any, 
+        table_name: str
+    ) -> None:
         self._client = client
         self._table_name = table_name
 
-    def get_account(self, account_id: str) -> dict[str, Any] | None:
-        """Return an account by id."""
+    def get_account(
+        self,
+        account_id: str,
+    ) -> Account | None:
         response = self._client.get_item(
             TableName=self._table_name,
             Key={"id": {"S": account_id}},
@@ -66,13 +75,17 @@ class AccountDAO:
 
         item = response.get("Item")
 
-        return _from_dynamodb_item(item) if item else None
+        if not item:
+            return None
+
+        return Account.model_validate(
+            _from_dynamodb_item(item)
+        )
 
     def get_account_by_email(
         self,
         email: str,
-    ) -> dict[str, Any] | None:
-        """Return an account with the given email address."""
+    ) -> Account | None:
         response = self._client.query(
             TableName=self._table_name,
             IndexName="email-index",
@@ -88,22 +101,23 @@ class AccountDAO:
         if not items:
             return None
 
-        return _from_dynamodb_item(items[0])
+        return Account.model_validate(
+            _from_dynamodb_item(items[0])
+        )
 
     def put_account(
         self,
-        account: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Store an account."""
+        account: Account,
+    ) -> Account:
+        
         self._client.put_item(
             TableName=self._table_name,
-            Item=_to_dynamodb_item(account),
+            Item=_to_dynamodb_item(account.model_dump()),
         )
 
         return account
 
     def ensure_table(self) -> None:
-        """Create the accounts table if it does not exist."""
         try:
             self._client.describe_table(
                 TableName=self._table_name,
@@ -165,7 +179,7 @@ class AccountDAO:
 
 @lru_cache
 def get_account_dao() -> AccountDAO:
-    """Return the configured AccountDAO."""
+
     settings: Settings = get_settings()
 
     client = boto3.client(

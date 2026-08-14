@@ -1,5 +1,3 @@
-"""Data access for email verification records stored in DynamoDB."""
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,6 +10,7 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
+from app.models.auth import OTPVerification
 
 
 _serializer = TypeSerializer()
@@ -19,7 +18,7 @@ _deserializer = TypeDeserializer()
 
 
 def _prepare_value(value: Any) -> Any:
-    """Convert values that DynamoDB cannot store directly."""
+
     if isinstance(value, datetime):
         return value.isoformat()
 
@@ -30,7 +29,7 @@ def _prepare_value(value: Any) -> Any:
 
 
 def _to_dynamodb_item(data: dict[str, Any]) -> dict[str, Any]:
-    """Serialize a verification record for DynamoDB."""
+
     return {
         key: _serializer.serialize(_prepare_value(value))
         for key, value in data.items()
@@ -39,68 +38,84 @@ def _to_dynamodb_item(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _from_dynamodb_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Deserialize a DynamoDB verification record."""
+
     return {
         key: _deserializer.deserialize(value)
         for key, value in item.items()
     }
 
 
-class EmailVerificationDAO:
-    """DynamoDB-backed data access for email verification records."""
+class OTPVerificationDAO:
 
     def __init__(self, client: Any, table_name: str) -> None:
         self._client = client
         self._table_name = table_name
 
-    def get_verification(self, email: str) -> dict[str, Any] | None:
-        """Return the verification record for an email."""
+    def get_verification(
+        self,
+        identifier: str,
+    ) -> OTPVerification | None:
         response = self._client.get_item(
             TableName=self._table_name,
-            Key={"email": {"S": email}},
+            Key={"identifier": {"S": identifier}},
         )
 
         item = response.get("Item")
 
-        return _from_dynamodb_item(item) if item else None
+        if not item:
+            return None
+
+        return OTPVerification.model_validate(
+            _from_dynamodb_item(item)
+        )
 
     def put_verification(
         self,
-        verification: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Create or replace an email verification record."""
+        verification: OTPVerification,
+    ) -> OTPVerification:
         self._client.put_item(
             TableName=self._table_name,
-            Item=_to_dynamodb_item(verification),
+            Item=_to_dynamodb_item(
+                verification.model_dump()
+            ),
         )
 
         return verification
 
     def update_verification(
         self,
-        verification: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Update an email verification record."""
+        verification: OTPVerification,
+    ) -> OTPVerification:
         return self.put_verification(verification)
 
-    def delete_verification(self, email: str) -> bool:
-        """Delete an email verification record."""
+    def delete_verification(
+        self,
+        identifier: str,
+    ) -> bool:
         try:
             response = self._client.delete_item(
                 TableName=self._table_name,
-                Key={"email": {"S": email}},
-                ConditionExpression="attribute_exists(email)",
+                Key={
+                    "identifier": {
+                        "S": identifier,
+                    }
+                },
+                ConditionExpression="attribute_exists(identifier)",
                 ReturnValues="ALL_OLD",
             )
+
         except ClientError as exc:
-            if exc.response["Error"]["Code"] == "ConditionalCheckFailedException":
+            if (
+                exc.response["Error"]["Code"]
+                == "ConditionalCheckFailedException"
+            ):
                 return False
+            
             raise
 
         return "Attributes" in response
 
     def ensure_table(self) -> None:
-        """Create the email verification table if it does not exist."""
         try:
             self._client.describe_table(TableName=self._table_name)
             return
@@ -112,13 +127,13 @@ class EmailVerificationDAO:
             TableName=self._table_name,
             AttributeDefinitions=[
                 {
-                    "AttributeName": "email",
+                    "AttributeName": "identifier",
                     "AttributeType": "S",
                 }
             ],
             KeySchema=[
                 {
-                    "AttributeName": "email",
+                    "AttributeName": "identifier",
                     "KeyType": "HASH",
                 }
             ],
@@ -131,8 +146,7 @@ class EmailVerificationDAO:
 
 
 @lru_cache
-def get_email_verification_dao() -> EmailVerificationDAO:
-    """Return the configured email verification DAO."""
+def get_otp_verification_dao() -> OTPVerificationDAO:
     settings: Settings = get_settings()
 
     client = boto3.client(
@@ -143,7 +157,7 @@ def get_email_verification_dao() -> EmailVerificationDAO:
         aws_secret_access_key=settings.aws_secret_access_key,
     )
 
-    return EmailVerificationDAO(
+    return OTPVerificationDAO(
         client=client,
-        table_name=settings.dynamodb_email_verifications_table_name,
+        table_name=settings.dynamodb_otp_verifications_table_name,
     )

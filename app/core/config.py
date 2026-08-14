@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = None
     dynamodb_table_name: str = "items"
     dynamodb_accounts_table_name: str = "accounts"
-    dynamodb_email_verifications_table_name: str = "email_verifications"
+    dynamodb_otp_verifications_table_name: str = "otp_verifications"
     # Optional endpoint override (e.g. "http://localhost:8000" for DynamoDB Local).
     dynamodb_endpoint_url: str | None = None
     # Auto-create the DynamoDB table on startup if missing (local/dev only).

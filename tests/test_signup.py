@@ -1,6 +1,10 @@
 import pytest
 from fastapi import HTTPException
 from app.services.signup_service import SignupService
+from app.main import create_app
+from app.models.auth import OTPVerification
+from app.models.account import Account
+from app.services.otp_service import OTPService
 from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
@@ -15,10 +19,13 @@ class FakeAccountDAO:
 
 class FakeVerificationDAO:
     def __init__(self):
-        self.verifications = {}
+        self.verifications: dict[str, OTPVerification] = {}
 
-    def put_verification(self, verification):
-        self.verifications[verification["email"]] = verification
+    def put_verification(
+        self,
+        verification: OTPVerification,
+    ) -> OTPVerification:
+        self.verifications[verification.identifier] = verification
         return verification
 
 
@@ -41,6 +48,7 @@ def test_start_signup_with_new_email():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     service.start_signup("alice@example.com")
@@ -51,10 +59,13 @@ def test_start_signup_with_new_email():
 
 def test_start_signup_with_duplicate_email():
     account_dao = FakeAccountDAO()
-    account_dao.accounts["alice@example.com"] = {
-        "id": "account-001",
-        "email": "alice@example.com",
-    }
+    now = datetime.now(timezone.utc)
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        created_at=now,
+        updated_at=now,
+    )
 
     verification_dao = FakeVerificationDAO()
     email_service = FakeEmailService()
@@ -63,6 +74,7 @@ def test_start_signup_with_duplicate_email():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -84,6 +96,7 @@ def test_start_signup_normalizes_email():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     service.start_signup(" Alice@Example.com ")
@@ -105,6 +118,7 @@ def test_duplicate_email_check_is_case_insensitive():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -123,6 +137,7 @@ def test_signup_generates_secure_otp():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     service.start_signup("alice@example.com")
@@ -136,10 +151,10 @@ def test_signup_generates_secure_otp():
     assert otp.isdigit()
 
     # Plain OTP must not be stored
-    assert stored["code_hash"] != otp
+    assert stored.code_hash != otp
 
     # SHA-256 hash should contain 64 hexadecimal characters
-    assert len(stored["code_hash"]) == 64
+    assert len(stored.code_hash) == 64
 
 def test_signup_otp_expires_in_ten_minutes():
     account_dao = FakeAccountDAO()
@@ -150,6 +165,7 @@ def test_signup_otp_expires_in_ten_minutes():
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
+        otp_service=OTPService(),
     )
 
     before = datetime.now(timezone.utc)
@@ -160,7 +176,7 @@ def test_signup_otp_expires_in_ten_minutes():
 
     stored = verification_dao.verifications["alice@example.com"]
 
-    expires_at = stored["expires_at"]
+    expires_at = stored.expires_at
 
     min_expected = before.timestamp() + 600
     max_expected = after.timestamp() + 600
@@ -168,7 +184,6 @@ def test_signup_otp_expires_in_ten_minutes():
     assert min_expected <= expires_at.timestamp() <= max_expected
 
 def test_signup_endpoint_rejects_invalid_email():
-    from app.main import create_app
 
     app = create_app()
     client = TestClient(app)

@@ -1,5 +1,3 @@
-"""Authentication and onboarding endpoints."""
-
 from fastapi import APIRouter, Depends, status
 
 from app.models.auth import SignupRequest, SignupResponse
@@ -18,7 +16,6 @@ def signup(
     payload: SignupRequest,
     service: SignupService = Depends(get_signup_service),
 ) -> SignupResponse:
-    """Start signup by sending an email verification code."""
     service.start_signup(str(payload.email))
 
     return SignupResponse(
