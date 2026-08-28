@@ -125,18 +125,84 @@ class SignupService:
             code=otp,
         )
 
+    def verify_signup_otp(
+            self,
+            email: str,
+            code: str,
+        ) -> bool:
+            normalized_email = email.strip().lower()
+
+            verification = self._verification_dao.get_verification(
+                normalized_email,
+                VerificationPurpose.SIGNUP,
+            )
+
+            if verification is None:
+                return False
+
+            if verification.status != VerificationStatus.PENDING:
+                return False
+
+            now = datetime.now(timezone.utc)
+
+            if now >= verification.session_expires_at:
+                return False
+
+            if now >= verification.expires_at:
+                return False
+
+            if not self._otp_service.verify(
+                code=code,
+                code_hash=verification.code_hash,
+            ):
+                self._verification_dao.record_failed_attempt(
+                    identifier=normalized_email,
+                    purpose=VerificationPurpose.SIGNUP,
+                )
+                return False
+
+            account = self._account_dao.get_account_by_email(
+                normalized_email
+            )
+
+            if account is None:
+                return False
+
+            if account.status != AccountStatus.UNVERIFIED:
+                return False
+
+            updated_account = account.model_copy(
+                update={
+                    "status": AccountStatus.ACTIVE,
+                    "updated_at": now,
+                }
+            )
+
+            self._account_dao.put_account(updated_account)
+
+            consumed_verification = verification.model_copy(
+                update={
+                    "status": VerificationStatus.CONSUMED,
+                }
+            )
+
+            self._verification_dao.update_verification(
+                consumed_verification
+            )
+
+            return True
 
 def get_signup_service(
-    account_dao: AccountDAO = Depends(get_account_dao),
-    verification_dao: OTPVerificationDAO = Depends(
-        get_otp_verification_dao
-    ),
-    email_service: EmailService = Depends(get_email_service),
-    otp_service: OTPService = Depends(get_otp_service),
-) -> SignupService:
-    return SignupService(
-        account_dao=account_dao,
-        verification_dao=verification_dao,
-        email_service=email_service,
-        otp_service=otp_service,
-    )
+        account_dao: AccountDAO = Depends(get_account_dao),
+        verification_dao: OTPVerificationDAO = Depends(
+            get_otp_verification_dao
+        ),
+        email_service: EmailService = Depends(get_email_service),
+        otp_service: OTPService = Depends(get_otp_service),
+    ) -> SignupService:
+        return SignupService(
+            account_dao=account_dao,
+            verification_dao=verification_dao,
+            email_service=email_service,
+            otp_service=otp_service,
+        )

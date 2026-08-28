@@ -10,7 +10,7 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
-from app.models.auth import OTPVerification, VerificationPurpose
+from app.models.auth import OTPVerification, VerificationPurpose, VerificationStatus
 
 
 _serializer = TypeSerializer()
@@ -91,6 +91,82 @@ class OTPVerificationDAO:
         verification: OTPVerification,
     ) -> OTPVerification:
         return self.put_verification(verification)
+
+    def record_failed_attempt(
+        self,
+        identifier: str,
+        purpose: VerificationPurpose,
+    ) -> OTPVerification:
+        key = {
+            "identifier": {"S": identifier},
+            "purpose": {"S": purpose.value},
+        }
+
+        try:
+            response = self._client.update_item(
+                TableName=self._table_name,
+                Key=key,
+                UpdateExpression=(
+                    "SET attempt_count = attempt_count + :one, "
+                    "#status = :locked"
+                ),
+                ConditionExpression=(
+                    "#status = :pending "
+                    "AND attempt_count = :two"
+                ),
+                ExpressionAttributeNames={
+                    "#status": "status",
+                },
+                ExpressionAttributeValues={
+                    ":one": {"N": "1"},
+                    ":two": {"N": "2"},
+                    ":pending": {
+                        "S": VerificationStatus.PENDING.value,
+                    },
+                    ":locked": {
+                        "S": VerificationStatus.LOCKED.value,
+                    },
+                },
+                ReturnValues="ALL_NEW",
+            )
+
+            return OTPVerification.model_validate(
+                _from_dynamodb_item(response["Attributes"])
+            )
+
+        except ClientError as exc:
+            if (
+                exc.response["Error"]["Code"]
+                != "ConditionalCheckFailedException"
+            ):
+                raise
+
+        response = self._client.update_item(
+            TableName=self._table_name,
+            Key=key,
+            UpdateExpression=(
+                "SET attempt_count = attempt_count + :one"
+            ),
+            ConditionExpression=(
+                "#status = :pending "
+                "AND attempt_count < :two"
+            ),
+            ExpressionAttributeNames={
+                "#status": "status",
+            },
+            ExpressionAttributeValues={
+                ":one": {"N": "1"},
+                ":two": {"N": "2"},
+                ":pending": {
+                    "S": VerificationStatus.PENDING.value,
+                },
+            },
+            ReturnValues="ALL_NEW",
+        )
+
+        return OTPVerification.model_validate(
+            _from_dynamodb_item(response["Attributes"])
+        )
 
     def delete_verification(
         self,

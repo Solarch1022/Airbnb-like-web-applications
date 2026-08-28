@@ -48,6 +48,8 @@ class VerifyOTPRequest(BaseModel):
         pattern=r"^\d{6}$",
     )
 
+class VerifyOTPResponse(BaseModel):
+    message: str
 
 class OTPVerification(BaseModel):
     identifier: str
