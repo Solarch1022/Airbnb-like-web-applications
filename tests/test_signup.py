@@ -1,12 +1,15 @@
 import pytest
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
+from botocore.exceptions import ClientError
 
+from app.dao import account_dao
 from app.main import create_app
 from app.models.account import Account, AccountStatus
-from app.models.auth import OTPVerification, VerificationStatus
+from app.models.auth import OTPVerification, VerificationStatus, VerificationPurpose
 from app.services.otp_service import OTPService
 from app.services.signup_service import SignupService
+
 
 
 class FakeAccountDAO:
@@ -19,6 +22,98 @@ class FakeAccountDAO:
     def put_account(self, account: Account):
         self.accounts[str(account.email).lower()] = account
         return account
+
+class FakeSignupTransactionDAO:
+    def __init__(
+        self,
+        account_dao,
+        verification_dao,
+    ):
+        self._account_dao = account_dao
+        self._verification_dao = verification_dao
+        self.calls = []
+
+    def activate_account_and_consume_verification(
+        self,
+        account_id: str,
+        identifier: str,
+        purpose,
+        code_hash: str,
+        updated_at,
+    ) -> None:
+        self.calls.append(
+            {
+                "account_id": account_id,
+                "identifier": identifier,
+                "purpose": purpose,
+                "code_hash": code_hash,
+                "updated_at": updated_at,
+            }
+        )
+
+        account = self._account_dao.get_account_by_email(identifier)
+
+        updated_account = account.model_copy(
+            update={
+                "status": AccountStatus.ACTIVE,
+                "updated_at": updated_at,
+            }
+        )
+
+        self._account_dao.put_account(updated_account)
+
+        verification = self._verification_dao.get_verification(
+            identifier,
+            purpose,
+        )
+
+        consumed_verification = verification.model_copy(
+            update={
+                "status": VerificationStatus.CONSUMED,
+            }
+        )
+
+        self._verification_dao.update_verification(
+            consumed_verification
+        )
+
+class FailingSignupTransactionDAO:
+    def activate_account_and_consume_verification(
+        self,
+        account_id: str,
+        identifier: str,
+        purpose,
+        code_hash: str,
+        updated_at,
+    ) -> None:
+        raise ClientError(
+            {
+                "Error": {
+                    "Code": "TransactionCanceledException",
+                    "Message": "Transaction cancelled",
+                }
+            },
+            "TransactWriteItems",
+        )
+
+class UnexpectedFailingSignupTransactionDAO:
+    def activate_account_and_consume_verification(
+        self,
+        account_id: str,
+        identifier: str,
+        purpose,
+        code_hash: str,
+        updated_at,
+    ) -> None:
+        raise ClientError(
+            {
+                "Error": {
+                    "Code": "ResourceNotFoundException",
+                    "Message": "Table not found",
+                }
+            },
+            "TransactWriteItems",
+        )
 
 class FakeVerificationDAO:
     def __init__(self):
@@ -452,11 +547,17 @@ def test_verify_signup_otp_activates_account_and_consumes_verification():
 
     verification_dao.put_verification(verification)
 
+    transaction_dao = FakeSignupTransactionDAO(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+    )
+
     service = SignupService(
         account_dao=account_dao,
         verification_dao=verification_dao,
         email_service=email_service,
         otp_service=otp_service,
+        transaction_dao=transaction_dao,
     )
 
     result = service.verify_signup_otp(
@@ -472,6 +573,15 @@ def test_verify_signup_otp_activates_account_and_consumes_verification():
     assert result is True
     assert account.status == AccountStatus.ACTIVE
     assert stored_verification.status == VerificationStatus.CONSUMED
+
+    assert len(transaction_dao.calls) == 1
+
+    call = transaction_dao.calls[0]
+
+    assert call["account_id"] == "account-001"
+    assert call["identifier"] == "alice@example.com"
+    assert call["purpose"] == VerificationPurpose.SIGNUP
+    assert call["code_hash"] == verification.code_hash
 
 def test_verify_signup_otp_records_first_failed_attempt():
     account_dao = FakeAccountDAO()
@@ -866,3 +976,105 @@ def test_expired_pending_signup_session_starts_new_session():
     assert stored.resend_count == 0
     assert stored.created_at > old_verification.created_at
     assert stored.session_expires_at > now
+
+def test_verify_signup_otp_returns_false_when_transaction_conflicts():
+    account_dao = FakeAccountDAO()
+    verification_dao = FakeVerificationDAO()
+    email_service = FakeEmailService()
+    otp_service = OTPService()
+
+    now = datetime.now(timezone.utc)
+
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now,
+        updated_at=now,
+    )
+
+    otp = "123456"
+
+    verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash(otp),
+        status=VerificationStatus.PENDING,
+        attempt_count=0,
+        resend_count=0,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        last_sent_at=now,
+        session_expires_at=now + timedelta(minutes=60),
+    )
+
+    verification_dao.put_verification(verification)
+
+    service = SignupService(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+        email_service=email_service,
+        otp_service=otp_service,
+        transaction_dao=FailingSignupTransactionDAO(),
+    )
+
+    result = service.verify_signup_otp(
+        email="alice@example.com",
+        code=otp,
+    )
+
+    assert result is False
+
+def test_verify_signup_otp_reraises_unexpected_transaction_error():
+    account_dao = FakeAccountDAO()
+    verification_dao = FakeVerificationDAO()
+    email_service = FakeEmailService()
+    otp_service = OTPService()
+
+    now = datetime.now(timezone.utc)
+
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now,
+        updated_at=now,
+    )
+
+    otp = "123456"
+
+    verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash(otp),
+        status=VerificationStatus.PENDING,
+        attempt_count=0,
+        resend_count=0,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        last_sent_at=now,
+        session_expires_at=now + timedelta(minutes=60),
+    )
+
+    verification_dao.put_verification(verification)
+
+    service = SignupService(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+        email_service=email_service,
+        otp_service=otp_service,
+        transaction_dao=UnexpectedFailingSignupTransactionDAO(),
+    )
+
+    with pytest.raises(ClientError) as exc_info:
+        service.verify_signup_otp(
+            email="alice@example.com",
+            code=otp,
+        )
+
+    assert (
+        exc_info.value.response["Error"]["Code"]
+        == "ResourceNotFoundException"
+    )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from botocore.exceptions import ClientError
 
 from fastapi import Depends
 
@@ -9,6 +10,10 @@ from app.dao.account_dao import AccountDAO, get_account_dao
 from app.dao.otp_verification_dao import (
     OTPVerificationDAO,
     get_otp_verification_dao,
+)
+from app.dao.signup_transaction_dao import (
+    SignupTransactionDAO,
+    get_signup_transaction_dao,
 )
 from app.models.account import Account, AccountStatus
 from app.models.auth import (
@@ -33,11 +38,13 @@ class SignupService:
         verification_dao: OTPVerificationDAO,
         email_service: EmailService,
         otp_service: OTPService,
+        transaction_dao: SignupTransactionDAO | None = None,
     ) -> None:
         self._account_dao = account_dao
         self._verification_dao = verification_dao
         self._email_service = email_service
         self._otp_service = otp_service
+        self._transaction_dao = transaction_dao
 
     def start_signup(self, email: str) -> None:
 
@@ -174,24 +181,23 @@ class SignupService:
             if account.status != AccountStatus.UNVERIFIED:
                 return False
 
-            updated_account = account.model_copy(
-                update={
-                    "status": AccountStatus.ACTIVE,
-                    "updated_at": now,
-                }
-            )
+            if self._transaction_dao is None:
+                return False
 
-            self._account_dao.put_account(updated_account)
+            try:
+                self._transaction_dao.activate_account_and_consume_verification(
+                    account_id=account.id,
+                    identifier=normalized_email,
+                    purpose=VerificationPurpose.SIGNUP,
+                    code_hash=verification.code_hash,
+                    updated_at=now,
+                )
 
-            consumed_verification = verification.model_copy(
-                update={
-                    "status": VerificationStatus.CONSUMED,
-                }
-            )
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] == "TransactionCanceledException":
+                    return False
 
-            self._verification_dao.update_verification(
-                consumed_verification
-            )
+                raise
 
             return True
 
@@ -208,4 +214,5 @@ def get_signup_service(
             verification_dao=verification_dao,
             email_service=email_service,
             otp_service=otp_service,
+            transaction_dao=get_signup_transaction_dao(),
         )
