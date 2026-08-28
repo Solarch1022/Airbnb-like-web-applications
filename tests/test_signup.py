@@ -91,10 +91,22 @@ class FakeEmailService:
     def __init__(self):
         self.sent_email = None
         self.sent_code = None
+        self.sent = []
 
-    def send_verification_code(self, email, code):
+    def send_verification_code(
+        self,
+        email: str,
+        code: str,
+    ) -> None:
         self.sent_email = email
         self.sent_code = code
+
+        self.sent.append(
+            {
+                "email": email,
+                "code": code,
+            }
+        )
 
 def test_start_signup_with_new_email():
     account_dao = FakeAccountDAO()
@@ -750,3 +762,107 @@ def test_consumed_signup_otp_cannot_be_replayed():
     assert result is False
     assert stored.status == VerificationStatus.CONSUMED
     assert stored.attempt_count == 0
+
+def test_expired_locked_signup_session_starts_new_session():
+    account_dao = FakeAccountDAO()
+    verification_dao = FakeVerificationDAO()
+    email_service = FakeEmailService()
+    otp_service = OTPService()
+
+    now = datetime.now(timezone.utc)
+
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now - timedelta(hours=2),
+        updated_at=now - timedelta(hours=2),
+    )
+
+    old_verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash("111111"),
+        status=VerificationStatus.LOCKED,
+        attempt_count=3,
+        resend_count=2,
+        created_at=now - timedelta(hours=2),
+        expires_at=now - timedelta(hours=1, minutes=50),
+        last_sent_at=now - timedelta(hours=2),
+        session_expires_at=now - timedelta(hours=1),
+    )
+
+    verification_dao.put_verification(old_verification)
+
+    service = SignupService(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+        email_service=email_service,
+        otp_service=otp_service,
+    )
+
+    service.start_signup("alice@example.com")
+
+    stored = verification_dao.verifications[
+        ("alice@example.com", "signup")
+    ]
+
+    assert len(email_service.sent) == 1
+    assert stored.status == VerificationStatus.PENDING
+    assert stored.attempt_count == 0
+    assert stored.resend_count == 0
+    assert stored.created_at > old_verification.created_at
+    assert stored.session_expires_at > now
+
+def test_expired_pending_signup_session_starts_new_session():
+    account_dao = FakeAccountDAO()
+    verification_dao = FakeVerificationDAO()
+    email_service = FakeEmailService()
+    otp_service = OTPService()
+
+    now = datetime.now(timezone.utc)
+
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now - timedelta(hours=2),
+        updated_at=now - timedelta(hours=2),
+    )
+
+    old_verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash("111111"),
+        status=VerificationStatus.PENDING,
+        attempt_count=2,
+        resend_count=3,
+        created_at=now - timedelta(hours=2),
+        expires_at=now - timedelta(hours=1, minutes=50),
+        last_sent_at=now - timedelta(hours=2),
+        session_expires_at=now - timedelta(hours=1),
+    )
+
+    verification_dao.put_verification(old_verification)
+
+    service = SignupService(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+        email_service=email_service,
+        otp_service=otp_service,
+    )
+
+    service.start_signup("alice@example.com")
+
+    stored = verification_dao.verifications[
+        ("alice@example.com", "signup")
+    ]
+
+    assert len(email_service.sent) == 1
+    assert stored.status == VerificationStatus.PENDING
+    assert stored.attempt_count == 0
+    assert stored.resend_count == 0
+    assert stored.created_at > old_verification.created_at
+    assert stored.session_expires_at > now

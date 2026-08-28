@@ -69,15 +69,18 @@ class SignupService:
             )
 
             if existing_verification is not None:
-                if existing_verification.status == VerificationStatus.LOCKED:
+                if existing_verification.session_expires_at <= now:
+                    existing_verification = None
+
+                elif existing_verification.status == VerificationStatus.LOCKED:
                     return
 
-                cooldown_until = existing_verification.last_sent_at + timedelta(
-                    seconds=self.RESEND_COOLDOWN_SECONDS
-                )
-
-                if now < cooldown_until:
-                    return
+                else:
+                    cooldown_until = existing_verification.last_sent_at + timedelta(
+                        seconds=self.RESEND_COOLDOWN_SECONDS
+                    )
+                    if now < cooldown_until:
+                        return
 
         else:
             return
