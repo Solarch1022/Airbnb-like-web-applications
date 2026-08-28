@@ -10,7 +10,7 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
-from app.models.auth import OTPVerification
+from app.models.auth import OTPVerification, VerificationPurpose
 
 
 _serializer = TypeSerializer()
@@ -54,10 +54,14 @@ class OTPVerificationDAO:
     def get_verification(
         self,
         identifier: str,
+        purpose: VerificationPurpose,
     ) -> OTPVerification | None:
         response = self._client.get_item(
             TableName=self._table_name,
-            Key={"identifier": {"S": identifier}},
+            Key={
+                "identifier": {"S": identifier},
+                "purpose": {"S": purpose.value},
+            },
         )
 
         item = response.get("Item")
@@ -91,14 +95,14 @@ class OTPVerificationDAO:
     def delete_verification(
         self,
         identifier: str,
+        purpose: VerificationPurpose,
     ) -> bool:
         try:
             response = self._client.delete_item(
                 TableName=self._table_name,
                 Key={
-                    "identifier": {
-                        "S": identifier,
-                    }
+                    "identifier": {"S": identifier},
+                    "purpose": {"S": purpose.value},
                 },
                 ConditionExpression="attribute_exists(identifier)",
                 ReturnValues="ALL_OLD",
@@ -129,13 +133,21 @@ class OTPVerificationDAO:
                 {
                     "AttributeName": "identifier",
                     "AttributeType": "S",
-                }
+                },
+                {
+                    "AttributeName": "purpose",
+                    "AttributeType": "S",
+                },
             ],
             KeySchema=[
                 {
                     "AttributeName": "identifier",
                     "KeyType": "HASH",
-                }
+                },
+                {
+                    "AttributeName": "purpose",
+                    "KeyType": "RANGE",
+                },
             ],
             BillingMode="PAY_PER_REQUEST",
         )

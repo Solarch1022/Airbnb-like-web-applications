@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 
 from app.dao.account_dao import AccountDAO, get_account_dao
 from app.dao.otp_verification_dao import (
     OTPVerificationDAO,
     get_otp_verification_dao,
 )
+from app.models.account import Account, AccountStatus
 from app.models.auth import (
     OTPVerification,
     VerificationChannel,
+    VerificationPurpose,
     VerificationStatus,
 )
 from app.services.email_service import EmailService, get_email_service
@@ -21,6 +24,8 @@ from app.services.otp_service import OTPService, get_otp_service
 class SignupService:
 
     OTP_EXPIRY_MINUTES = 10
+    SIGNUP_SESSION_EXPIRY_MINUTES = 60
+    RESEND_COOLDOWN_SECONDS = 60
 
     def __init__(
         self,
@@ -42,28 +47,74 @@ class SignupService:
             normalized_email
         )
 
-        if existing_account is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email is already registered",
+        now = datetime.now(timezone.utc)
+
+        existing_verification = None
+
+        if existing_account is None:
+            account = Account(
+                id=str(uuid4()),
+                email=normalized_email,
+                status=AccountStatus.UNVERIFIED,
+                created_at=now,
+                updated_at=now,
             )
 
+            self._account_dao.put_account(account)
+
+        elif existing_account.status == AccountStatus.UNVERIFIED:
+            existing_verification = self._verification_dao.get_verification(
+                normalized_email,
+                VerificationPurpose.SIGNUP,
+            )
+
+            if existing_verification is not None:
+                if existing_verification.status == VerificationStatus.LOCKED:
+                    return
+
+                cooldown_until = existing_verification.last_sent_at + timedelta(
+                    seconds=self.RESEND_COOLDOWN_SECONDS
+                )
+
+                if now < cooldown_until:
+                    return
+
+        else:
+            return
+        
         otp = self._otp_service.generate()
         code_hash = self._otp_service.hash(otp)
 
-        now = datetime.now(timezone.utc)
+        if existing_verification is None:
+            verification = OTPVerification(
+                identifier=normalized_email,
+                channel=VerificationChannel.EMAIL,
+                purpose=VerificationPurpose.SIGNUP,
+                code_hash=code_hash,
+                status=VerificationStatus.PENDING,
+                attempt_count=0,
+                resend_count=0,
+                created_at=now,
+                expires_at=now + timedelta(
+                    minutes=self.OTP_EXPIRY_MINUTES
+                ),
+                last_sent_at=now,
+                session_expires_at=now + timedelta(
+                    minutes=self.SIGNUP_SESSION_EXPIRY_MINUTES
+                ),
+            )
 
-        verification = OTPVerification(
-            identifier=normalized_email,
-            channel=VerificationChannel.EMAIL,
-            code_hash=code_hash,
-            status=VerificationStatus.PENDING,
-            expires_at=now + timedelta(
-                minutes=self.OTP_EXPIRY_MINUTES
-            ),
-            attempt_count=0,
-            created_at=now,
-        )
+        else:
+            verification = existing_verification.model_copy(
+                update={
+                    "code_hash": code_hash,
+                    "resend_count": existing_verification.resend_count + 1,
+                    "expires_at": now + timedelta(
+                        minutes=self.OTP_EXPIRY_MINUTES
+                    ),
+                    "last_sent_at": now,
+                }
+            )
 
         self._verification_dao.put_verification(
             verification,

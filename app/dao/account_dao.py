@@ -2,21 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-import email
-import email
 from enum import Enum
 from functools import lru_cache
 from typing import Any
-from urllib import response
 
 import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.exceptions import ClientError
 
 from app.core.config import Settings, get_settings
-from app.models import item
 from app.models.account import Account
-from app.routers import items
 
 
 _serializer = TypeSerializer()
