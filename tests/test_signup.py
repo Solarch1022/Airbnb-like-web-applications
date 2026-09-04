@@ -343,12 +343,12 @@ def test_signup_otp_expires_in_ten_minutes():
 
     stored = verification_dao.verifications[("alice@example.com", "signup")]
 
-    expires_at = stored.expires_at
+    otp_expires_at = stored.otp_expires_at
 
     min_expected = before.timestamp() + 600
     max_expected = after.timestamp() + 600
 
-    assert min_expected <= expires_at.timestamp() <= max_expected
+    assert min_expected <= otp_expires_at.timestamp() <= max_expected
 
 def test_signup_endpoint_rejects_invalid_email():
 
@@ -386,7 +386,7 @@ def test_unverified_account_resend_preserves_attempt_count():
         attempt_count=2,
         resend_count=1,
         created_at=now,
-        expires_at=now - timedelta(minutes=1),
+        otp_expires_at=now - timedelta(minutes=1),
         last_sent_at=now - timedelta(minutes=2),
         session_expires_at=now + timedelta(minutes=30),
         )
@@ -438,7 +438,7 @@ def test_unverified_account_does_not_resend_during_cooldown():
         attempt_count=1,
         resend_count=1,
         created_at=now,
-        expires_at=now,
+        otp_expires_at=now,
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -487,7 +487,7 @@ def test_locked_signup_session_does_not_resend_otp():
         attempt_count=3,
         resend_count=1,
         created_at=now,
-        expires_at=now,
+        otp_expires_at=now,
         last_sent_at=now - timedelta(minutes=5),
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -540,7 +540,7 @@ def test_verify_signup_otp_activates_account_and_consumes_verification():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -608,7 +608,7 @@ def test_verify_signup_otp_records_first_failed_attempt():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -663,7 +663,7 @@ def test_verify_signup_otp_locks_after_three_failed_attempts():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -733,7 +733,7 @@ def test_locked_signup_verification_rejects_correct_otp():
         attempt_count=3,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -790,7 +790,7 @@ def test_expired_signup_otp_is_rejected():
         attempt_count=0,
         resend_count=0,
         created_at=now - timedelta(minutes=20),
-        expires_at=now - timedelta(minutes=1),
+        otp_expires_at=now - timedelta(minutes=1),
         last_sent_at=now - timedelta(minutes=20),
         session_expires_at=now + timedelta(minutes=40),
     )
@@ -846,7 +846,7 @@ def test_consumed_signup_otp_cannot_be_replayed():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -898,7 +898,7 @@ def test_expired_locked_signup_session_starts_new_session():
         attempt_count=3,
         resend_count=2,
         created_at=now - timedelta(hours=2),
-        expires_at=now - timedelta(hours=1, minutes=50),
+        otp_expires_at=now - timedelta(hours=1, minutes=50),
         last_sent_at=now - timedelta(hours=2),
         session_expires_at=now - timedelta(hours=1),
     )
@@ -950,7 +950,7 @@ def test_expired_pending_signup_session_starts_new_session():
         attempt_count=2,
         resend_count=3,
         created_at=now - timedelta(hours=2),
-        expires_at=now - timedelta(hours=1, minutes=50),
+        otp_expires_at=now - timedelta(hours=1, minutes=50),
         last_sent_at=now - timedelta(hours=2),
         session_expires_at=now - timedelta(hours=1),
     )
@@ -1004,7 +1004,7 @@ def test_verify_signup_otp_returns_false_when_transaction_conflicts():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )
@@ -1053,7 +1053,7 @@ def test_verify_signup_otp_reraises_unexpected_transaction_error():
         attempt_count=0,
         resend_count=0,
         created_at=now,
-        expires_at=now + timedelta(minutes=10),
+        otp_expires_at=now + timedelta(minutes=10),
         last_sent_at=now,
         session_expires_at=now + timedelta(minutes=60),
     )

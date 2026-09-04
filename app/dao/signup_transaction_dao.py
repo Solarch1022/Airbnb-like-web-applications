@@ -78,7 +78,7 @@ class SignupTransactionDAO:
                         "ConditionExpression": (
                             "#status = :pending "
                             "AND code_hash = :code_hash "
-                            "AND expires_at > :now "
+                            "AND otp_expires_at > :now "
                             "AND session_expires_at > :now"
                         ),
                         "ExpressionAttributeNames": {

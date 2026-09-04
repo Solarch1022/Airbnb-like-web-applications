@@ -63,6 +63,6 @@ class OTPVerification(BaseModel):
     resend_count: int = 0
 
     created_at: datetime
-    expires_at: datetime
+    otp_expires_at: datetime
     last_sent_at: datetime
     session_expires_at: datetime

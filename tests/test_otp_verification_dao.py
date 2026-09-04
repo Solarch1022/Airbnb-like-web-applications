@@ -16,7 +16,7 @@ def _pending_verification_attributes(attempt_count: int) -> dict:
         "attempt_count": {"N": str(attempt_count)},
         "resend_count": {"N": "0"},
         "created_at": {"S": "2026-08-28T10:00:00+00:00"},
-        "expires_at": {"S": "2026-08-28T10:10:00+00:00"},
+        "otp_expires_at": {"S": "2026-08-28T10:10:00+00:00"},
         "last_sent_at": {"S": "2026-08-28T10:00:00+00:00"},
         "session_expires_at": {"S": "2026-08-28T11:00:00+00:00"},
     }

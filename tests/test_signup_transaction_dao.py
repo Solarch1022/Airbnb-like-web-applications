@@ -74,7 +74,7 @@ def test_activate_account_and_consume_verification_uses_transaction():
     assert verification_update["ConditionExpression"] == (
         "#status = :pending "
         "AND code_hash = :code_hash "
-        "AND expires_at > :now "
+        "AND otp_expires_at > :now "
         "AND session_expires_at > :now"
     )
 
