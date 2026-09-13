@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.core.config import get_settings
 from app.dao.item_dao import get_item_dao
-from app.routers import health, items
+from app.dao.account_dao import get_account_dao
+from app.dao.otp_verification_dao import get_otp_verification_dao
+from app.routers import health, items, auth
 
 
 @asynccontextmanager
@@ -19,6 +21,8 @@ async def lifespan(_app: FastAPI):
     # In production, provision the table via infrastructure-as-code instead.
     if settings.auto_create_table and settings.environment != "production":
         get_item_dao().ensure_table()
+        get_account_dao().ensure_table()
+        get_otp_verification_dao().ensure_table()
     yield
 
 
@@ -43,6 +47,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(items.router)
+    app.include_router(auth.router)
 
     @app.get("/", tags=["root"])
     def root() -> dict[str, str]:
