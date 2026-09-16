@@ -5,7 +5,7 @@ from app.dao.signup_transaction_dao import SignupTransactionDAO
 from app.models.auth import VerificationPurpose
 
 
-def test_activate_account_and_consume_verification_uses_transaction():
+def test_mark_account_pending_setup_and_consume_verification_uses_transaction():
     client = MagicMock()
 
     dao = SignupTransactionDAO(
@@ -16,7 +16,7 @@ def test_activate_account_and_consume_verification_uses_transaction():
 
     now = datetime.now(timezone.utc)
 
-    dao.activate_account_and_consume_verification(
+    dao.mark_account_pending_setup_and_consume_verification(
         account_id="account-001",
         identifier="alice@example.com",
         purpose=VerificationPurpose.SIGNUP,
@@ -47,7 +47,7 @@ def test_activate_account_and_consume_verification_uses_transaction():
     }
 
     assert account_update["UpdateExpression"] == (
-        "SET #status = :active, "
+        "SET #status = :pending_setup, "
         "updated_at = :updated_at"
     )
 
@@ -55,15 +55,21 @@ def test_activate_account_and_consume_verification_uses_transaction():
         "#status = :unverified"
     )
 
-    assert account_update["ExpressionAttributeValues"][":active"] == {
-        "S": "active",
+    assert account_update["ExpressionAttributeValues"][
+        ":pending_setup"
+    ] == {
+        "S": "pending_setup",
     }
 
-    assert account_update["ExpressionAttributeValues"][":unverified"] == {
+    assert account_update["ExpressionAttributeValues"][
+        ":unverified"
+    ] == {
         "S": "unverified",
     }
 
-    assert account_update["ExpressionAttributeValues"][":updated_at"] == {
+    assert account_update["ExpressionAttributeValues"][
+        ":updated_at"
+    ] == {
         "S": now.isoformat(),
     }
 
@@ -78,18 +84,26 @@ def test_activate_account_and_consume_verification_uses_transaction():
         "AND session_expires_at > :now"
     )
 
-    assert verification_update["ExpressionAttributeValues"][":now"] == {
+    assert verification_update["ExpressionAttributeValues"][
+        ":now"
+    ] == {
         "S": now.isoformat(),
     }
-    
-    assert verification_update["ExpressionAttributeValues"][":code_hash"] == {
+
+    assert verification_update["ExpressionAttributeValues"][
+        ":code_hash"
+    ] == {
         "S": "expected-code-hash",
     }
 
-    assert verification_update["ExpressionAttributeValues"][":consumed"] == {
+    assert verification_update["ExpressionAttributeValues"][
+        ":consumed"
+    ] == {
         "S": "consumed",
     }
 
-    assert verification_update["ExpressionAttributeValues"][":pending"] == {
+    assert verification_update["ExpressionAttributeValues"][
+        ":pending"
+    ] == {
         "S": "pending",
     }

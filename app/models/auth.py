@@ -50,6 +50,17 @@ class VerifyOTPRequest(BaseModel):
 
 class VerifyOTPResponse(BaseModel):
     message: str
+    registration_token: str | None = None
+
+class CompleteSignupRequest(BaseModel):
+    registration_token: str
+    password: str
+    first_name: str
+    last_name: str
+
+class CompleteSignupResponse(BaseModel):
+    message: str
+    refresh_token: str
 
 class OTPVerification(BaseModel):
     identifier: str
@@ -66,3 +77,14 @@ class OTPVerification(BaseModel):
     otp_expires_at: datetime
     last_sent_at: datetime
     session_expires_at: datetime
+
+class RegistrationTokenStatus(str, Enum):
+    ACTIVE = "active"
+    CONSUMED = "consumed"
+
+class RegistrationToken(BaseModel):
+    jti: str
+    account_id: str
+    email: EmailStr
+    status: RegistrationTokenStatus
+    expires_at: datetime
