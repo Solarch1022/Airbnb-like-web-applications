@@ -1,4 +1,11 @@
-from fastapi import APIRouter, Depends, status
+import jwt
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 
 from app.models.auth import (
     SignupRequest,
@@ -7,12 +14,18 @@ from app.models.auth import (
     VerifyOTPResponse,
     CompleteSignupRequest,
     CompleteSignupResponse,
+    RefreshRequest,
+    RefreshResponse,
 )
 from app.services.complete_signup_service import (
     CompleteSignupService,
     get_complete_signup_service,
 )
 from app.services.signup_service import SignupService, get_signup_service
+from app.services.refresh_service import (
+    RefreshService,
+    get_refresh_service,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -83,4 +96,28 @@ def complete_signup(
     return CompleteSignupResponse(
         message="Signup completed",
         refresh_token=refresh_token,
+    )
+
+@router.post(
+    "/refresh",
+    response_model=RefreshResponse,
+)
+def refresh(
+    request: RefreshRequest,
+    service: RefreshService = Depends(
+        get_refresh_service
+    ),
+) -> RefreshResponse:
+    try:
+        access_token = service.refresh(
+            refresh_token=request.refresh_token,
+        )
+    except (ValueError, jwt.InvalidTokenError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        ) from exc
+
+    return RefreshResponse(
+        access_token=access_token,
     )

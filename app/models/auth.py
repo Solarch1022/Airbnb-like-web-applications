@@ -62,6 +62,12 @@ class CompleteSignupResponse(BaseModel):
     message: str
     refresh_token: str
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class RefreshResponse(BaseModel):
+    access_token: str
+
 class OTPVerification(BaseModel):
     identifier: str
     channel: VerificationChannel
@@ -87,4 +93,15 @@ class RegistrationToken(BaseModel):
     account_id: str
     email: EmailStr
     status: RegistrationTokenStatus
+    expires_at: datetime
+
+class SessionStatus(str, Enum):
+    ACTIVE = "active"
+    EXPIRED = "expired"
+
+class Session(BaseModel):
+    id: str
+    account_id: str
+    status: SessionStatus
+    created_at: datetime
     expires_at: datetime

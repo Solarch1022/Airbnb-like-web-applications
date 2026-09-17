@@ -1,4 +1,8 @@
 from fastapi import Depends
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+from app.models.auth import Session, SessionStatus
 
 from app.dao.account_dao import AccountDAO, get_account_dao
 from app.dao.registration_token_dao import (
@@ -19,6 +23,7 @@ from app.services.password_service import (
 )
 from app.models.auth import RegistrationTokenStatus
 from app.models.account import AccountStatus
+from app.core.config import Settings, get_settings
 
 
 class CompleteSignupService:
@@ -31,12 +36,18 @@ class CompleteSignupService:
         password_service: PasswordService,
         complete_signup_transaction_dao:
             CompleteSignupTransactionDAO,
+        refresh_token_expiry_days: int = 30,
     ) -> None:
         self._account_dao = account_dao
         self._registration_token_dao = registration_token_dao
         self._token_service = token_service
         self._password_service = password_service
-        self._complete_signup_transaction_dao = complete_signup_transaction_dao
+        self._complete_signup_transaction_dao = (
+            complete_signup_transaction_dao
+        )
+        self._refresh_token_expiry_days = (
+            refresh_token_expiry_days
+        )
 
     def complete_signup(
         self,
@@ -95,13 +106,33 @@ class CompleteSignupService:
             password
         )
 
+        now = datetime.now(timezone.utc)
+
+        session = Session(
+            id=str(uuid4()),
+            account_id=account.id,
+            status=SessionStatus.ACTIVE,
+            created_at=now,
+            expires_at=now + timedelta(
+                days=self._refresh_token_expiry_days
+            ),
+        )
+
+        refresh_token = self._token_service.create_refresh_token(
+            account_id=account.id,
+            session_id=session.id,
+        )
+
         self._complete_signup_transaction_dao.complete_signup(
             account_id=account.id,
             registration_token_jti=payload["jti"],
             first_name=first_name,
             last_name=last_name,
             password_hash=password_hash,
+            session=session,
         )
+
+        return refresh_token
 
 def get_complete_signup_service(
     account_dao: AccountDAO = Depends(get_account_dao),
@@ -115,11 +146,17 @@ def get_complete_signup_service(
     complete_signup_transaction_dao: CompleteSignupTransactionDAO = Depends(
         get_complete_signup_transaction_dao
     ),
+    settings: Settings = Depends(get_settings),
 ) -> CompleteSignupService:
     return CompleteSignupService(
         account_dao=account_dao,
         registration_token_dao=registration_token_dao,
         token_service=token_service,
         password_service=password_service,
-        complete_signup_transaction_dao=complete_signup_transaction_dao,
+        complete_signup_transaction_dao=(
+            complete_signup_transaction_dao
+        ),
+        refresh_token_expiry_days=(
+            settings.refresh_token_expiry_days
+        ),
     )

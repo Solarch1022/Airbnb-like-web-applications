@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
+from app.models.auth import Session, SessionStatus
+
 from app.dao.complete_signup_transaction_dao import (
     CompleteSignupTransactionDAO,
 )
@@ -10,15 +14,34 @@ class FakeDynamoDBClient:
     def transact_write_items(self, TransactItems):
         self.transact_items = TransactItems
 
+def make_session(
+    account_id: str = "account-001",
+) -> Session:
+    now = datetime.now(timezone.utc)
+
+    return Session(
+        id="session-001",
+        account_id=account_id,
+        status=SessionStatus.ACTIVE,
+        created_at=now,
+        expires_at=now + timedelta(days=30),
+    )
+
+
+def make_complete_signup_dao(
+    client: FakeDynamoDBClient,
+) -> CompleteSignupTransactionDAO:
+    return CompleteSignupTransactionDAO(
+        client=client,
+        accounts_table_name="accounts",
+        registration_tokens_table_name="registration_tokens",
+        sessions_table_name="sessions",
+    )
 
 def test_complete_signup_uses_single_dynamodb_transaction():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -26,10 +49,11 @@ def test_complete_signup_uses_single_dynamodb_transaction():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     assert client.transact_items is not None
-    assert len(client.transact_items) == 2
+    assert len(client.transact_items) == 3
 
 def test_complete_signup_transaction_dao_exists():
     assert CompleteSignupTransactionDAO is not None
@@ -45,11 +69,7 @@ def test_complete_signup_transaction_dao_has_complete_signup_method():
 def test_complete_signup_transaction_updates_correct_account():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -57,6 +77,7 @@ def test_complete_signup_transaction_updates_correct_account():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     account_operation = client.transact_items[0]
@@ -74,11 +95,7 @@ def test_complete_signup_transaction_updates_correct_account():
 def test_complete_signup_requires_account_pending_setup():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -86,6 +103,7 @@ def test_complete_signup_requires_account_pending_setup():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     account_update = client.transact_items[0]["Update"]
@@ -109,11 +127,7 @@ def test_complete_signup_requires_account_pending_setup():
 def test_complete_signup_updates_account_profile_password_and_status():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -121,6 +135,7 @@ def test_complete_signup_updates_account_profile_password_and_status():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     account_update = client.transact_items[0]["Update"]
@@ -155,11 +170,7 @@ def test_complete_signup_updates_account_profile_password_and_status():
 def test_complete_signup_updates_account_updated_at():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -167,6 +178,7 @@ def test_complete_signup_updates_account_updated_at():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     account_update = client.transact_items[0]["Update"]
@@ -186,11 +198,7 @@ def test_complete_signup_updates_account_updated_at():
 def test_complete_signup_transaction_updates_correct_registration_token():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -198,6 +206,7 @@ def test_complete_signup_transaction_updates_correct_registration_token():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     token_operation = client.transact_items[1]
@@ -219,11 +228,7 @@ def test_complete_signup_transaction_updates_correct_registration_token():
 def test_complete_signup_requires_registration_token_active():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -231,6 +236,7 @@ def test_complete_signup_requires_registration_token_active():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     token_update = client.transact_items[1]["Update"]
@@ -254,11 +260,7 @@ def test_complete_signup_requires_registration_token_active():
 def test_complete_signup_consumes_registration_token():
     client = FakeDynamoDBClient()
 
-    dao = CompleteSignupTransactionDAO(
-        client=client,
-        accounts_table_name="accounts",
-        registration_tokens_table_name="registration_tokens",
-    )
+    dao = make_complete_signup_dao(client)
 
     dao.complete_signup(
         account_id="account-001",
@@ -266,6 +268,7 @@ def test_complete_signup_consumes_registration_token():
         first_name="Alice",
         last_name="Test",
         password_hash="hashed-password",
+        session=make_session(),
     )
 
     token_update = client.transact_items[1]["Update"]
@@ -280,3 +283,89 @@ def test_complete_signup_consumes_registration_token():
     ] == {
         "S": "consumed"
     }
+
+
+def test_complete_signup_transaction_includes_session():
+    client = FakeDynamoDBClient()
+
+    dao = make_complete_signup_dao(client)
+
+    now = datetime.now(timezone.utc)
+
+    session = Session(
+        id="session-001",
+        account_id="account-001",
+        status=SessionStatus.ACTIVE,
+        created_at=now,
+        expires_at=now + timedelta(days=30),
+    )
+
+    dao.complete_signup(
+        account_id="account-001",
+        registration_token_jti="token-jti-001",
+        first_name="Alice",
+        last_name="Test",
+        password_hash="hashed-password",
+        session=session,
+    )
+
+    assert client.transact_items is not None
+    assert len(client.transact_items) == 3
+
+    session_operation = client.transact_items[2]
+
+    assert "Put" in session_operation
+
+    session_put = session_operation["Put"]
+
+    assert session_put["TableName"] == "sessions"
+
+    assert session_put["Item"] == {
+        "id": {
+            "S": "session-001",
+        },
+        "account_id": {
+            "S": "account-001",
+        },
+        "status": {
+            "S": "active",
+        },
+        "created_at": {
+            "S": now.isoformat(),
+        },
+        "expires_at": {
+            "S": (
+                now + timedelta(days=30)
+            ).isoformat(),
+        },
+        "ttl": {
+            "N": str(
+                int(
+                    (
+                        now + timedelta(days=30)
+                    ).timestamp()
+                )
+            ),
+        },
+    }
+
+
+def test_complete_signup_does_not_overwrite_existing_session():
+    client = FakeDynamoDBClient()
+    dao = make_complete_signup_dao(client)
+
+    dao.complete_signup(
+        account_id="account-001",
+        registration_token_jti="token-jti-001",
+        first_name="Alice",
+        last_name="Test",
+        password_hash="hashed-password",
+        session=make_session(),
+    )
+
+    session_put = client.transact_items[2]["Put"]
+
+    assert (
+        session_put["ConditionExpression"]
+        == "attribute_not_exists(id)"
+    )

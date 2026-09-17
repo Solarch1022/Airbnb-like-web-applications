@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     dynamodb_accounts_table_name: str = "accounts"
     dynamodb_otp_verifications_table_name: str = "otp_verifications"
     dynamodb_registration_tokens_table_name: str = "registration_tokens"
+    dynamodb_sessions_table_name: str = "sessions"
     # Optional endpoint override (e.g. "http://localhost:8000" for DynamoDB Local).
     dynamodb_endpoint_url: str | None = None
     # Auto-create the DynamoDB table on startup if missing (local/dev only).
@@ -40,6 +41,8 @@ class Settings(BaseSettings):
     # Authentication / JWT
     jwt_secret_key: str = "change-me-in-production"
     registration_token_expiry_minutes: int = 10
+    refresh_token_expiry_days: int = 30
+    access_token_expiry_minutes: int = 15
 
     @property
     def cors_origins_list(self) -> list[str]:
