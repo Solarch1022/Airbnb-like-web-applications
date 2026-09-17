@@ -1,14 +1,31 @@
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from datetime import datetime, timedelta, timezone
 from botocore.exceptions import ClientError
 
 from app.dao import account_dao
 from app.main import create_app
+from app.routers.auth import router
 from app.models.account import Account, AccountStatus
-from app.models.auth import OTPVerification, VerificationStatus, VerificationPurpose
+from app.models.auth import (
+    OTPVerification,
+    VerificationStatus,
+    VerificationPurpose,
+    RegistrationToken,
+    RegistrationTokenStatus,
+    CompleteSignupRequest,
+    CompleteSignupResponse,
+)
+from app.services.token_service import TokenService
 from app.services.otp_service import OTPService
-from app.services.signup_service import SignupService
+from app.services.signup_service import (
+    SignupService,
+    get_signup_service,
+)
+from app.services.complete_signup_service import (
+    get_complete_signup_service,
+)
 
 
 
@@ -33,7 +50,7 @@ class FakeSignupTransactionDAO:
         self._verification_dao = verification_dao
         self.calls = []
 
-    def activate_account_and_consume_verification(
+    def mark_account_pending_setup_and_consume_verification(
         self,
         account_id: str,
         identifier: str,
@@ -55,7 +72,7 @@ class FakeSignupTransactionDAO:
 
         updated_account = account.model_copy(
             update={
-                "status": AccountStatus.ACTIVE,
+                "status": AccountStatus.PENDING_SETUP,
                 "updated_at": updated_at,
             }
         )
@@ -78,7 +95,7 @@ class FakeSignupTransactionDAO:
         )
 
 class FailingSignupTransactionDAO:
-    def activate_account_and_consume_verification(
+    def mark_account_pending_setup_and_consume_verification(
         self,
         account_id: str,
         identifier: str,
@@ -97,7 +114,7 @@ class FailingSignupTransactionDAO:
         )
 
 class UnexpectedFailingSignupTransactionDAO:
-    def activate_account_and_consume_verification(
+    def mark_account_pending_setup_and_consume_verification(
         self,
         account_id: str,
         identifier: str,
@@ -202,6 +219,23 @@ class FakeEmailService:
                 "code": code,
             }
         )
+
+class FakeRegistrationTokenDAO:
+    def __init__(self):
+        self.tokens: dict[str, RegistrationToken] = {}
+
+    def put_token(
+        self,
+        token: RegistrationToken,
+    ) -> RegistrationToken:
+        self.tokens[token.jti] = token
+        return token
+
+    def get_token(
+        self,
+        jti: str,
+    ) -> RegistrationToken | None:
+        return self.tokens.get(jti)
 
 def test_start_signup_with_new_email():
     account_dao = FakeAccountDAO()
@@ -513,7 +547,7 @@ def test_locked_signup_session_does_not_resend_otp():
     assert email_service.sent_email is None
     assert email_service.sent_code is None
 
-def test_verify_signup_otp_activates_account_and_consumes_verification():
+def test_verify_signup_otp_marks_account_pending_setup_and_consumes_verification():
     account_dao = FakeAccountDAO()
     verification_dao = FakeVerificationDAO()
     email_service = FakeEmailService()
@@ -571,7 +605,7 @@ def test_verify_signup_otp_activates_account_and_consumes_verification():
     ]
 
     assert result is True
-    assert account.status == AccountStatus.ACTIVE
+    assert account.status == AccountStatus.PENDING_SETUP
     assert stored_verification.status == VerificationStatus.CONSUMED
 
     assert len(transaction_dao.calls) == 1
@@ -830,7 +864,7 @@ def test_consumed_signup_otp_cannot_be_replayed():
     account_dao.accounts["alice@example.com"] = Account(
         id="account-001",
         email="alice@example.com",
-        status=AccountStatus.ACTIVE,
+        status=AccountStatus.PENDING_SETUP,
         created_at=now,
         updated_at=now,
     )
@@ -1078,3 +1112,230 @@ def test_verify_signup_otp_reraises_unexpected_transaction_error():
         exc_info.value.response["Error"]["Code"]
         == "ResourceNotFoundException"
     )
+
+
+def test_verify_signup_otp_returns_registration_token():
+    account_dao = FakeAccountDAO()
+    verification_dao = FakeVerificationDAO()
+    registration_token_dao = FakeRegistrationTokenDAO()
+    email_service = FakeEmailService()
+    otp_service = OTPService()
+
+    token_service = TokenService(
+        secret_key="test-secret-key-at-least-32-bytes-long",
+        registration_token_expiry_minutes=10,
+    )
+
+    now = datetime.now(timezone.utc)
+
+    account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now,
+        updated_at=now,
+    )
+
+    otp = "123456"
+
+    verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash(otp),
+        status="pending",
+        attempt_count=0,
+        resend_count=0,
+        created_at=now,
+        otp_expires_at=now + timedelta(minutes=10),
+        last_sent_at=now,
+        session_expires_at=now + timedelta(minutes=60),
+    )
+
+    verification_dao.put_verification(verification)
+
+    transaction_dao = FakeSignupTransactionDAO(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+    )
+
+    service = SignupService(
+        account_dao=account_dao,
+        verification_dao=verification_dao,
+        email_service=email_service,
+        otp_service=otp_service,
+        transaction_dao=transaction_dao,
+        token_service=token_service,
+        registration_token_dao=registration_token_dao,
+    )
+
+    result = service.verify_signup_otp(
+        email="alice@example.com",
+        code=otp,
+    )
+
+    assert isinstance(result, str)
+
+    payload = token_service.verify_registration_token(result)
+
+    assert payload["account_id"] == "account-001"
+    assert payload["email"] == "alice@example.com"
+    assert payload["purpose"] == "registration"
+
+    stored_token = registration_token_dao.get_token(
+        payload["jti"]
+    )
+
+    assert stored_token is not None
+    assert stored_token.account_id == "account-001"
+    assert stored_token.email == "alice@example.com"
+    assert stored_token.status == RegistrationTokenStatus.ACTIVE
+
+
+def test_verify_signup_endpoint_returns_registration_token():
+    app = create_app()
+    client = TestClient(app)
+
+    fake_account_dao = FakeAccountDAO()
+    fake_verification_dao = FakeVerificationDAO()
+    fake_email_service = FakeEmailService()
+    fake_registration_token_dao = FakeRegistrationTokenDAO()
+
+    otp_service = OTPService()
+
+    token_service = TokenService(
+        secret_key="test-secret-key-at-least-32-bytes-long",
+        registration_token_expiry_minutes=10,
+    )
+
+    now = datetime.now(timezone.utc)
+
+    fake_account_dao.accounts["alice@example.com"] = Account(
+        id="account-001",
+        email="alice@example.com",
+        status=AccountStatus.UNVERIFIED,
+        created_at=now,
+        updated_at=now,
+    )
+
+    otp = "123456"
+
+    verification = OTPVerification(
+        identifier="alice@example.com",
+        channel="email",
+        purpose="signup",
+        code_hash=otp_service.hash(otp),
+        status=VerificationStatus.PENDING,
+        attempt_count=0,
+        resend_count=0,
+        created_at=now,
+        otp_expires_at=now + timedelta(minutes=10),
+        last_sent_at=now,
+        session_expires_at=now + timedelta(minutes=60),
+    )
+
+    fake_verification_dao.put_verification(verification)
+
+    transaction_dao = FakeSignupTransactionDAO(
+        account_dao=fake_account_dao,
+        verification_dao=fake_verification_dao,
+    )
+
+    service = SignupService(
+        account_dao=fake_account_dao,
+        verification_dao=fake_verification_dao,
+        email_service=fake_email_service,
+        otp_service=otp_service,
+        transaction_dao=transaction_dao,
+        token_service=token_service,
+        registration_token_dao=fake_registration_token_dao,
+    )
+
+    app.dependency_overrides[get_signup_service] = (
+        lambda: service
+    )
+
+    response = client.post(
+        "/auth/verify",
+        json={
+            "email": "alice@example.com",
+            "code": otp,
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["message"] == "Account verified"
+    assert isinstance(
+        body["registration_token"],
+        str,
+    )
+    assert body["registration_token"]
+
+
+def test_complete_signup_request_does_not_require_email():
+    request = CompleteSignupRequest(
+        registration_token="test-registration-token",
+        password="SecurePassword123!",
+        first_name="Test",
+        last_name="User",
+    )
+
+    assert request.registration_token == "test-registration-token"
+    assert request.password == "SecurePassword123!"
+    assert request.first_name == "Test"
+    assert request.last_name == "User"
+
+
+def test_complete_signup_response_contains_refresh_token():
+    response = CompleteSignupResponse(
+        message="Signup completed",
+        refresh_token="test-refresh-token",
+    )
+
+    assert response.message == "Signup completed"
+    assert response.refresh_token == "test-refresh-token"
+
+
+def test_complete_signup_endpoint_returns_refresh_token():
+    class FakeCompleteSignupService:
+        def complete_signup(
+            self,
+            registration_token: str,
+            password: str,
+            first_name: str,
+            last_name: str,
+        ):
+            assert registration_token == "test-registration-token"
+            assert password == "SecurePassword123!"
+            assert first_name == "Test"
+            assert last_name == "User"
+
+            return "test-refresh-token"
+
+    app = FastAPI()
+    app.include_router(router)
+
+    app.dependency_overrides[get_complete_signup_service] = (
+        lambda: FakeCompleteSignupService()
+    )
+
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/complete-signup",
+        json={
+            "registration_token": "test-registration-token",
+            "password": "SecurePassword123!",
+            "first_name": "Test",
+            "last_name": "User",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "message": "Signup completed",
+        "refresh_token": "test-refresh-token",
+    }

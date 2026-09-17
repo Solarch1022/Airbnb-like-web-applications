@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, Field
 class AccountStatus(str, Enum):
     UNVERIFIED = "unverified"
     ACTIVE = "active"
+    PENDING_SETUP = "pending_setup"
     DEACTIVATED = "deactivated"
     DELETED = "deleted"
 
@@ -56,6 +57,8 @@ class Account(BaseModel):
         min_length=1,
         max_length=100,
     )
+
+    password_hash: str | None = None
 
     status: AccountStatus
     created_at: datetime

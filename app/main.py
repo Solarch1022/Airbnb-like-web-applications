@@ -11,6 +11,8 @@ from app.dao.item_dao import get_item_dao
 from app.dao.account_dao import get_account_dao
 from app.dao.otp_verification_dao import get_otp_verification_dao
 from app.routers import health, items, auth
+from app.dao.registration_token_dao import get_registration_token_dao
+
 
 
 @asynccontextmanager
@@ -23,6 +25,7 @@ async def lifespan(_app: FastAPI):
         get_item_dao().ensure_table()
         get_account_dao().ensure_table()
         get_otp_verification_dao().ensure_table()
+        get_registration_token_dao().ensure_table()
     yield
 
 
