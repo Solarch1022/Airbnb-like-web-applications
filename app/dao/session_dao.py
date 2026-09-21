@@ -71,6 +71,7 @@ class SessionDAO:
         self._client.put_item(
             TableName=self._table_name,
             Item=_to_dynamodb_item(data),
+            ConditionExpression="attribute_not_exists(id)",
         )
 
     def get_session(
