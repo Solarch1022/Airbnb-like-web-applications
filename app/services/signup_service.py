@@ -19,6 +19,8 @@ from app.models.account import Account, AccountStatus
 from app.models.auth import (
     VerificationPurpose,
     VerificationStatus,
+    RegistrationToken,
+    RegistrationTokenStatus,
 )
 from app.services.email_service import (
     EmailService,
@@ -27,6 +29,14 @@ from app.services.email_service import (
 from app.services.otp_service import (
     OTPService,
     get_otp_service,
+)
+from app.services.token_service import (
+    TokenService,
+    get_token_service,
+)
+from app.dao.registration_token_dao import (
+    RegistrationTokenDAO,
+    get_registration_token_dao,
 )
 
 
@@ -39,12 +49,16 @@ class SignupService:
         email_service: EmailService,
         otp_service: OTPService,
         transaction_dao: SignupTransactionDAO | None = None,
+        token_service: TokenService | None = None,
+        registration_token_dao: RegistrationTokenDAO | None = None,
     ) -> None:
         self._account_dao = account_dao
         self._verification_dao = verification_dao
         self._email_service = email_service
         self._otp_service = otp_service
         self._transaction_dao = transaction_dao
+        self._token_service = token_service
+        self._registration_token_dao = registration_token_dao
 
     def start_signup(self, email: str) -> None:
         normalized_email = email.strip().lower()
@@ -100,7 +114,7 @@ class SignupService:
         self,
         email: str,
         code: str,
-    ) -> bool:
+    ) -> str | bool:
         normalized_email = email.strip().lower()
 
         verification = self._verification_dao.get_verification(
@@ -146,7 +160,7 @@ class SignupService:
             return False
 
         try:
-            self._transaction_dao.activate_account_and_consume_verification(
+            self._transaction_dao.mark_account_pending_setup_and_consume_verification(
                 account_id=account.id,
                 identifier=normalized_email,
                 purpose=VerificationPurpose.SIGNUP,
@@ -163,7 +177,39 @@ class SignupService:
 
             raise
 
-        return True
+        if (
+            self._token_service is None
+            or self._registration_token_dao is None
+        ):
+            return True
+
+        registration_token = (
+            self._token_service.create_registration_token(
+                account_id=account.id,
+                email=normalized_email,
+            )
+        )
+
+        payload = (
+            self._token_service.verify_registration_token(
+                registration_token
+            )
+        )
+
+        self._registration_token_dao.put_token(
+            RegistrationToken(
+                jti=payload["jti"],
+                account_id=account.id,
+                email=normalized_email,
+                status=RegistrationTokenStatus.ACTIVE,
+                expires_at=datetime.fromtimestamp(
+                    payload["exp"],
+                    tz=timezone.utc,
+                ),
+            )
+        )
+
+        return registration_token
 
 
 def get_signup_service(
@@ -173,6 +219,10 @@ def get_signup_service(
     ),
     email_service: EmailService = Depends(get_email_service),
     otp_service: OTPService = Depends(get_otp_service),
+    registration_token_dao: RegistrationTokenDAO = Depends(
+        get_registration_token_dao
+    ),
+    token_service: TokenService = Depends(get_token_service),
 ) -> SignupService:
     return SignupService(
         account_dao=account_dao,
@@ -180,4 +230,6 @@ def get_signup_service(
         email_service=email_service,
         otp_service=otp_service,
         transaction_dao=get_signup_transaction_dao(),
+        token_service=token_service,
+        registration_token_dao=registration_token_dao,
     )

@@ -28,7 +28,7 @@ class SignupTransactionDAO:
             otp_verifications_table_name
         )
 
-    def activate_account_and_consume_verification(
+    def mark_account_pending_setup_and_consume_verification(
         self,
         account_id: str,
         identifier: str,
@@ -45,7 +45,7 @@ class SignupTransactionDAO:
                             "id": {"S": account_id},
                         },
                         "UpdateExpression": (
-                            "SET #status = :active, "
+                            "SET #status = :pending_setup, "
                             "updated_at = :updated_at"
                         ),
                         "ConditionExpression": (
@@ -55,8 +55,8 @@ class SignupTransactionDAO:
                             "#status": "status",
                         },
                         "ExpressionAttributeValues": {
-                            ":active": {
-                                "S": AccountStatus.ACTIVE.value,
+                            ":pending_setup": {
+                                "S": AccountStatus.PENDING_SETUP.value,
                             },
                             ":unverified": {
                                 "S": AccountStatus.UNVERIFIED.value,
