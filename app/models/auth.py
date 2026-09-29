@@ -48,9 +48,11 @@ class VerifyOTPRequest(BaseModel):
         pattern=r"^\d{6}$",
     )
 
+
 class VerifyOTPResponse(BaseModel):
     message: str
     registration_token: str | None = None
+
 
 class CompleteSignupRequest(BaseModel):
     registration_token: str
@@ -58,15 +60,28 @@ class CompleteSignupRequest(BaseModel):
     first_name: str
     last_name: str
 
+
 class CompleteSignupResponse(BaseModel):
     message: str
     refresh_token: str
 
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
+
 class RefreshResponse(BaseModel):
     access_token: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class LoginResponse(BaseModel):
+    refresh_token: str
+
 
 class OTPVerification(BaseModel):
     identifier: str
@@ -84,9 +99,11 @@ class OTPVerification(BaseModel):
     last_sent_at: datetime
     session_expires_at: datetime
 
+
 class RegistrationTokenStatus(str, Enum):
     ACTIVE = "active"
     CONSUMED = "consumed"
+
 
 class RegistrationToken(BaseModel):
     jti: str
@@ -95,9 +112,11 @@ class RegistrationToken(BaseModel):
     status: RegistrationTokenStatus
     expires_at: datetime
 
+
 class SessionStatus(str, Enum):
     ACTIVE = "active"
     EXPIRED = "expired"
+
 
 class Session(BaseModel):
     id: str
