@@ -1,4 +1,8 @@
 from fastapi import Depends
+from dataclasses import dataclass
+from enum import Enum
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from app.core.config import Settings, get_settings
 from app.dao.account_dao import AccountDAO, get_account_dao
@@ -12,11 +16,19 @@ from app.services.token_service import (
     get_token_service,
 )
 
-from datetime import datetime, timedelta, timezone
-from uuid import uuid4
-
 from app.models.account import AccountStatus
 from app.models.auth import Session, SessionStatus
+
+
+class LoginStatus(str, Enum):
+    SUCCESS = "success"
+    INVALID_CREDENTIALS = "invalid_credentials"
+
+
+@dataclass
+class LoginResult:
+    status: LoginStatus
+    refresh_token: str | None = None
 
 
 class LoginService:
@@ -41,19 +53,25 @@ class LoginService:
         self,
         email: str,
         password: str,
-    ) -> str:
+    ) -> LoginResult:
         account = self._account_dao.get_account_by_email(
             email
         )
 
         if account is None:
-            raise ValueError("Invalid credentials")
+            return LoginResult(
+                status=LoginStatus.INVALID_CREDENTIALS,
+            )
 
         if account.status != AccountStatus.ACTIVE:
-            raise ValueError("Invalid credentials")
+            return LoginResult(
+                status=LoginStatus.INVALID_CREDENTIALS,
+            )
 
         if account.password_hash is None:
-            raise ValueError("Invalid credentials")
+            return LoginResult(
+                status=LoginStatus.INVALID_CREDENTIALS,
+            )
 
         password_is_valid = (
             self._password_service.verify_password(
@@ -63,7 +81,9 @@ class LoginService:
         )
 
         if not password_is_valid:
-            raise ValueError("Invalid credentials")
+            return LoginResult(
+                status=LoginStatus.INVALID_CREDENTIALS,
+            )
 
         now = datetime.now(timezone.utc)
 
@@ -86,7 +106,10 @@ class LoginService:
             )
         )
 
-        return refresh_token
+        return LoginResult(
+            status=LoginStatus.SUCCESS,
+            refresh_token=refresh_token,
+        )
 
 
 def get_login_service(

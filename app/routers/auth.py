@@ -30,6 +30,7 @@ from app.services.refresh_service import (
 )
 from app.services.login_service import (
     LoginService,
+    LoginStatus,
     get_login_service,
 )
 
@@ -115,19 +116,19 @@ def login(
         get_login_service
     ),
 ) -> LoginResponse:
-    try:
-        refresh_token = service.login(
-            email=str(payload.email),
-            password=payload.password,
-        )
-    except ValueError as exc:
+    result = service.login(
+        email=str(payload.email),
+        password=payload.password,
+    )
+
+    if result.status == LoginStatus.INVALID_CREDENTIALS:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid credentials",
-        ) from exc
+        )
 
     return LoginResponse(
-        refresh_token=refresh_token,
+        refresh_token=result.refresh_token,
     )
 
 

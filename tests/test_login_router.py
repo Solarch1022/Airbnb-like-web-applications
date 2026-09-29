@@ -2,7 +2,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers.auth import router
-from app.services.login_service import get_login_service
+from app.services.login_service import (
+    LoginResult,
+    LoginStatus,
+    get_login_service,
+)
 
 
 class FakeLoginService:
@@ -10,11 +14,14 @@ class FakeLoginService:
         self,
         email: str,
         password: str,
-    ) -> str:
+    ) -> LoginResult:
         assert email == "alice@example.com"
         assert password == "correct-password"
 
-        return "test-refresh-token"
+        return LoginResult(
+            status=LoginStatus.SUCCESS,
+            refresh_token="test-refresh-token",
+        )
 
 
 def test_login_endpoint_returns_refresh_token():
@@ -42,14 +49,16 @@ def test_login_endpoint_returns_refresh_token():
     }
 
 
-def test_login_endpoint_returns_401_for_invalid_credentials():
+def test_login_endpoint_returns_400_for_invalid_credentials():
     class FailingLoginService:
         def login(
             self,
             email: str,
             password: str,
-        ) -> str:
-            raise ValueError("Invalid credentials")
+        ) -> LoginResult:
+            return LoginResult(
+                status=LoginStatus.INVALID_CREDENTIALS,
+            )
 
     app = FastAPI()
     app.include_router(router)
@@ -71,7 +80,7 @@ def test_login_endpoint_returns_401_for_invalid_credentials():
         },
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 400
 
     assert response.json() == {
         "detail": "Invalid credentials",

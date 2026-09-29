@@ -1,8 +1,11 @@
-import pytest
 from datetime import datetime, timedelta, timezone
 
 from app.models.account import Account, AccountStatus
-from app.services.login_service import LoginService
+from app.services.login_service import (
+    LoginResult,
+    LoginService,
+    LoginStatus,
+)
 from app.models.auth import (
     Session,
     SessionStatus,
@@ -93,7 +96,7 @@ def test_active_account_with_correct_password_can_login():
         refresh_token_expiry_days=30,
     )
 
-    refresh_token = service.login(
+    result = service.login(
         email="alice@example.com",
         password="correct-password",
     )
@@ -122,10 +125,11 @@ def test_active_account_with_correct_password_can_login():
         == session_dao.saved_session.id
     )
 
-    assert refresh_token == "test-refresh-token"
+    assert result.status == LoginStatus.SUCCESS
+    assert result.refresh_token == "test-refresh-token"
 
 
-def test_login_rejects_unknown_email():
+def test_login_returns_invalid_credentials_for_unknown_email():
     account_dao = FakeAccountDAO(None)
 
     service = LoginService(
@@ -136,17 +140,16 @@ def test_login_rejects_unknown_email():
         refresh_token_expiry_days=30,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Invalid credentials",
-    ):
-        service.login(
-            email="unknown@example.com",
-            password="some-password",
-        )
+    result = service.login(
+        email="unknown@example.com",
+        password="some-password",
+    )
+
+    assert result.status == LoginStatus.INVALID_CREDENTIALS
+    assert result.refresh_token is None
 
 
-def test_login_rejects_non_active_account():
+def test_login_returns_invalid_credentials_for_non_active_account():
     now = datetime.now(timezone.utc)
 
     account = Account(
@@ -168,17 +171,16 @@ def test_login_rejects_non_active_account():
         refresh_token_expiry_days=30,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Invalid credentials",
-    ):
-        service.login(
-            email="alice@example.com",
-            password="correct-password",
-        )
+    result = service.login(
+        email="alice@example.com",
+        password="correct-password",
+    )
+
+    assert result.status == LoginStatus.INVALID_CREDENTIALS
+    assert result.refresh_token is None
 
 
-def test_login_rejects_account_without_password_hash():
+def test_login_returns_invalid_credentials_without_password_hash():
     now = datetime.now(timezone.utc)
 
     account = Account(
@@ -200,17 +202,16 @@ def test_login_rejects_account_without_password_hash():
         refresh_token_expiry_days=30,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Invalid credentials",
-    ):
-        service.login(
-            email="alice@example.com",
-            password="some-password",
-        )
+    result = service.login(
+        email="alice@example.com",
+        password="some-password",
+    )
+
+    assert result.status == LoginStatus.INVALID_CREDENTIALS
+    assert result.refresh_token is None
 
 
-def test_login_rejects_incorrect_password():
+def test_login_returns_invalid_credentials_for_incorrect_password():
     now = datetime.now(timezone.utc)
 
     account = Account(
@@ -236,14 +237,13 @@ def test_login_rejects_incorrect_password():
         refresh_token_expiry_days=30,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Invalid credentials",
-    ):
-        service.login(
-            email="alice@example.com",
-            password="wrong-password",
-        )
+    result = service.login(
+        email="alice@example.com",
+        password="wrong-password",
+    )
+
+    assert result.status == LoginStatus.INVALID_CREDENTIALS
+    assert result.refresh_token is None
 
     assert (
         password_service.received_password
