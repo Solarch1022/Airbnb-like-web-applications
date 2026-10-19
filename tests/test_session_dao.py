@@ -18,10 +18,12 @@ class FakeClient:
         self,
         TableName,
         Item,
+        ConditionExpression=None,
     ):
         self.put_item_call = {
             "TableName": TableName,
             "Item": Item,
+            "ConditionExpression": ConditionExpression,
         }
 
     def get_item(
@@ -129,6 +131,12 @@ def test_put_session_persists_session():
             ),
         },
     }
+
+    assert (
+        client.put_item_call["ConditionExpression"]
+        == "attribute_not_exists(id)"
+    )
+
 
 def test_get_session_returns_session():
     client = FakeClient()

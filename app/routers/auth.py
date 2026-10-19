@@ -16,6 +16,8 @@ from app.models.auth import (
     CompleteSignupResponse,
     RefreshRequest,
     RefreshResponse,
+    LoginRequest,
+    LoginResponse,
 )
 from app.services.complete_signup_service import (
     CompleteSignupService,
@@ -25,6 +27,11 @@ from app.services.signup_service import SignupService, get_signup_service
 from app.services.refresh_service import (
     RefreshService,
     get_refresh_service,
+)
+from app.services.login_service import (
+    LoginService,
+    LoginStatus,
+    get_login_service,
 )
 
 
@@ -97,6 +104,33 @@ def complete_signup(
         message="Signup completed",
         refresh_token=refresh_token,
     )
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+)
+def login(
+    payload: LoginRequest,
+    service: LoginService = Depends(
+        get_login_service
+    ),
+) -> LoginResponse:
+    result = service.login(
+        email=str(payload.email),
+        password=payload.password,
+    )
+
+    if result.status == LoginStatus.INVALID_CREDENTIALS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid credentials",
+        )
+
+    return LoginResponse(
+        refresh_token=result.refresh_token,
+    )
+
 
 @router.post(
     "/refresh",
