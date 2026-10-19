@@ -58,29 +58,15 @@ class LoginService:
             email
         )
 
-        if account is None:
-            return LoginResult(
-                status=LoginStatus.INVALID_CREDENTIALS,
-            )
-
-        if account.status != AccountStatus.ACTIVE:
-            return LoginResult(
-                status=LoginStatus.INVALID_CREDENTIALS,
-            )
-
-        if account.password_hash is None:
-            return LoginResult(
-                status=LoginStatus.INVALID_CREDENTIALS,
-            )
-
-        password_is_valid = (
-            self._password_service.verify_password(
+        if (
+            account is None
+            or account.status != AccountStatus.ACTIVE
+            or account.password_hash is None
+            or not self._password_service.verify_password(
                 password,
                 account.password_hash,
             )
-        )
-
-        if not password_is_valid:
+        ):
             return LoginResult(
                 status=LoginStatus.INVALID_CREDENTIALS,
             )
