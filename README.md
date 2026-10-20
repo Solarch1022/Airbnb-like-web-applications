@@ -177,6 +177,11 @@ Fixtures in `tests/conftest.py`:
 
 ## Next steps
 
-- Add authentication/authorization.
+- Extend organisation permissions to property and booking resources.
 - Add pagination for the `list` (scan) endpoint or a GSI for query access patterns.
 - Add a Dockerfile and infrastructure-as-code (CloudFormation/CDK/Terraform) for the table.
+
+
+## Organisation onboarding
+
+Open `/management` to sign in, create or select an organisation. See [the onboarding API, policies and verification guide](docs/organisation-onboarding.md).

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Organisation management</title>
+<style>
+body{font:16px system-ui,sans-serif;color:#243336;background:#f4f7f5;margin:0}main{max-width:800px;margin:64px auto;padding:24px}section{background:white;padding:28px;border-radius:16px;margin:20px 0;border:1px solid #dbe4df}h1{font-size:32px}label{display:block;margin:16px 0}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #aebeb6;border-radius:8px;font:inherit}button{font:inherit;padding:11px 18px;background:#20684f;color:white;border:0;border-radius:8px;cursor:pointer;margin:4px}button:disabled{opacity:.5;cursor:wait}p{line-height:1.6}#message{white-space:pre-wrap}small{color:#52675e}[hidden]{display:none!important}
+</style>
+</head>
+<body><main>
+<h1>Organisation management</h1>
+<p>Select your organisation or create a workspace for your properties.</p>
+<p id="message" role="status" aria-live="polite"></p>
+<section id="signin"><h2>Sign in</h2><form id="login-form">
+<label>Email<input id="email" type="email" autocomplete="username" required></label>
+<label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+<button>Sign in</button></form></section>
+<div id="management" hidden>
+<button id="signout">Sign out</button>
+<section><h2>Your organisations</h2><div id="organisations"></div></section>
+<section><h2>Create an organisation</h2><form id="create-form">
+<label>Organisation name<input id="name" maxlength="100" required></label>
+<button>Create organisation</button></form><small>You will become the admin of this organisation.</small></section>
+<section id="dashboard" hidden><h2 id="org-name"></h2><p id="org-role"></p>
+<div id="property-guidance" hidden><h3>Next: create your first property</h3>
+<p>Your organisation is ready. Property creation will be available when the property-management feature is released.</p></div>
+<p id="member-guidance" hidden>Contact your organisation admin to manage properties.</p>
+</section></div>
+</main><script>
+let accessToken = null;
+let pendingCreation = null;
+const byId = id => document.getElementById(id);
+function message(text) { byId('message').textContent = text; }
+function resetSession() {
+  accessToken = null; pendingCreation = null;
+  byId('management').hidden = true; byId('signin').hidden = false;
+  byId('dashboard').hidden = true;
+  byId('organisations').replaceChildren(); byId('org-name').textContent = '';
+}
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {'Content-Type':'application/json',
+      ...(accessToken ? {Authorization:`Bearer ${accessToken}`} : {}),
+      ...options.headers},
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    if (response.status === 401) resetSession();
+    throw new Error(typeof body.detail === 'string' ? body.detail : 'Please check your details and try again.');
+  }
+  return body;
+}
+async function selectOrganisation(id) {
+  const context = await api(`/organisations/${encodeURIComponent(id)}`);
+  const admin = context.membership.role === 'admin';
+  if (admin) await api(`/organisations/${encodeURIComponent(id)}/admin`);
+  byId('org-name').textContent = context.organisation.name;
+  byId('org-role').textContent = `Your role: ${context.membership.role}`;
+  byId('property-guidance').hidden = !admin;
+  byId('member-guidance').hidden = admin;
+  byId('dashboard').hidden = false;
+}
+async function loadOrganisations() {
+  const contexts = await api('/me/organisations');
+  const container = byId('organisations'); container.replaceChildren();
+  if (!contexts.length) container.textContent = 'You do not have an organisation yet. Create one below to get started.';
+  for (const context of contexts) {
+    const button = document.createElement('button');
+    button.textContent = context.organisation.name;
+    button.onclick = async () => {
+      byId('dashboard').hidden = true;
+      try { await selectOrganisation(context.organisation.organisation_id); message(''); }
+      catch (error) { message(error.message); }
+    };
+    container.append(button);
+  }
+}
+byId('login-form').onsubmit = async event => {
+  event.preventDefault(); const button = event.submitter; button.disabled = true;
+  try {
+    const login = await api('/auth/login', {method:'POST', body:JSON.stringify({email:byId('email').value,password:byId('password').value})});
+    const refresh = await api('/auth/refresh', {method:'POST',body:JSON.stringify({refresh_token:login.refresh_token})});
+    accessToken = refresh.access_token; byId('password').value = '';
+    await loadOrganisations(); byId('signin').hidden = true; byId('management').hidden = false;
+    message('Signed in. Select or create an organisation.');
+  } catch (error) { message(error.message); }
+  finally { button.disabled = false; }
+};
+byId('create-form').onsubmit = async event => {
+  event.preventDefault(); const button = event.submitter; button.disabled = true;
+  const name = byId('name').value.trim();
+  if (!name) { message('Enter an organisation name.'); button.disabled = false; return; }
+  if (!pendingCreation || pendingCreation.name !== name) pendingCreation = {name,key:crypto.randomUUID()};
+  try {
+    const context = await api('/organisations', {method:'POST',headers:{'Idempotency-Key':pendingCreation.key},body:JSON.stringify({name})});
+    pendingCreation = null; byId('name').value = '';
+    await loadOrganisations(); await selectOrganisation(context.organisation.organisation_id);
+    message('Organisation created. Your management workspace is ready.');
+  } catch (error) { message(error.message); }
+  finally { button.disabled = false; }
+};
+byId('signout').onclick = () => { resetSession(); message('Signed out of this page.'); };
+</script></body></html>

@@ -139,11 +139,38 @@ class TokenService:
             token,
             self._secret_key,
             algorithms=["HS256"],
+            options={
+                "require": [
+                    "account_id",
+                    "session_id",
+                    "purpose",
+                    "iat",
+                    "exp",
+                ],
+            },
         )
 
-        if payload.get("purpose") != "access":
+        if payload["purpose"] != "access":
             raise jwt.InvalidTokenError(
                 "Invalid token purpose"
+            )
+
+        for field in ("account_id", "session_id"):
+            value = payload[field]
+            if not isinstance(value, str) or not value.strip():
+                raise jwt.InvalidTokenError(
+                    "Invalid token identity"
+                )
+
+        for field in ("iat", "exp"):
+            if type(payload[field]) is not int:
+                raise jwt.InvalidTokenError(
+                    "Invalid token timestamp"
+                )
+
+        if payload["exp"] <= payload["iat"]:
+            raise jwt.InvalidTokenError(
+                "Invalid token lifetime"
             )
 
         return payload
