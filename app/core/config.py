@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     dynamodb_otp_verifications_table_name: str = "otp_verifications"
     dynamodb_registration_tokens_table_name: str = "registration_tokens"
     dynamodb_sessions_table_name: str = "sessions"
+    dynamodb_organisations_table_name: str = "organisations"
+    dynamodb_memberships_table_name: str = "organisation_memberships"
+    dynamodb_organisation_requests_table_name: str = "organisation_creation_requests"
     # Optional endpoint override (e.g. "http://localhost:8000" for DynamoDB Local).
     dynamodb_endpoint_url: str | None = None
     # Auto-create the DynamoDB table on startup if missing (local/dev only).
