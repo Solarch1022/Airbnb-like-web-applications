@@ -124,3 +124,8 @@ class Session(BaseModel):
     status: SessionStatus
     created_at: datetime
     expires_at: datetime
+
+
+class CurrentUser(BaseModel):
+    account_id: str
+    session_id: str
