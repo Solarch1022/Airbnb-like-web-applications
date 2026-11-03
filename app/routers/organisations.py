@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import HTMLResponse
 
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import require_authenticated_user
 from app.dependencies.organisation import require_org_admin, require_org_member
 from app.models.auth import CurrentUser
 from app.models.organisation import OrganisationContext, OrganisationCreate
@@ -20,7 +20,7 @@ router = APIRouter(tags=["organisations"])
 
 @router.get("/me/organisations", response_model=list[OrganisationContext])
 def list_my_organisations(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_authenticated_user),
     service: OrganisationService = Depends(get_organisation_service),
 ) -> list[OrganisationContext]:
     return service.list_contexts(current_user.account_id)
@@ -39,7 +39,7 @@ def create_organisation(
         max_length=128,
         pattern=r"^[A-Za-z0-9._:-]+$",
     ),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_authenticated_user),
     service: OrganisationService = Depends(get_organisation_service),
 ) -> OrganisationContext:
     try:

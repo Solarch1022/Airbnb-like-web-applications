@@ -1,4 +1,4 @@
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import require_authenticated_user
 from app.models.auth import CurrentUser
 
 import jwt
@@ -164,6 +164,6 @@ def refresh(
     response_model=CurrentUser,
 )
 def get_me(
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_authenticated_user),
 ) -> CurrentUser:
     return current_user

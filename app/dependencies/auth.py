@@ -14,7 +14,7 @@ from app.services.authentication_service import (
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
+def require_authenticated_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(
         bearer_scheme
     ),

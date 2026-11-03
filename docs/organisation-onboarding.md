@@ -22,7 +22,7 @@ GitHub phase: #14
 | GET | `/organisations/{organisation_id}/admin` | Active admin in the requested organisation |
 | GET | `/management` | Public sign-in shell; all data/API actions require authentication |
 
-Creation body: `{"name":"My Organisation"}`. Extra fields such as `role`, `created_by` and `organisation_id` are rejected. The caller identity comes from `get_current_user`.
+Creation body: `{"name":"My Organisation"}`. Extra fields such as `role`, `created_by` and `organisation_id` are rejected. The caller identity comes from `require_authenticated_user`.
 
 ## Permission matrix
 

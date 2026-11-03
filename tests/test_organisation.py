@@ -5,7 +5,7 @@ from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 import pytest
 
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import require_authenticated_user
 from app.main import create_app
 from app.models.auth import CurrentUser
 from app.models.organisation import (
@@ -58,7 +58,7 @@ def org_context():
     dao = FakeOrganisationDAO()
     service = OrganisationService(dao)
     app = create_app()
-    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+    app.dependency_overrides[require_authenticated_user] = lambda: CurrentUser(
         account_id="alice", session_id="session",
     )
     app.dependency_overrides[get_organisation_service] = lambda: service
@@ -201,7 +201,7 @@ def test_database_outage_is_not_reported_as_permission_error(org_context):
 ])
 def test_organisation_routes_require_authentication(org_context, method, path):
     _, _, client = org_context
-    client.app.dependency_overrides.pop(get_current_user)
+    client.app.dependency_overrides.pop(require_authenticated_user)
     # Override construction only; real bearer dependency still rejects the request.
     from app.services.authentication_service import get_authentication_service
     client.app.dependency_overrides[get_authentication_service] = lambda: Mock()

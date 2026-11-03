@@ -1,6 +1,6 @@
 from fastapi import Depends, HTTPException, status
 
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import require_authenticated_user
 from app.models.auth import CurrentUser
 from app.models.organisation import OrganisationContext, OrganisationRole
 from app.services.organisation_service import (
@@ -12,7 +12,7 @@ from app.services.organisation_service import (
 
 def require_org_member(
     organisation_id: str,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_authenticated_user),
     service: OrganisationService = Depends(get_organisation_service),
 ) -> OrganisationContext:
     try:
