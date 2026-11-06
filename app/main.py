@@ -10,7 +10,9 @@ from app.core.config import get_settings
 from app.dao.item_dao import get_item_dao
 from app.dao.account_dao import get_account_dao
 from app.dao.otp_verification_dao import get_otp_verification_dao
-from app.routers import health, items, auth
+from app.routers import health, items, auth, organisations
+from app.dao.organisation_dao import get_organisation_dao
+from app.dao.session_dao import get_session_dao
 from app.dao.registration_token_dao import get_registration_token_dao
 
 
@@ -26,6 +28,8 @@ async def lifespan(_app: FastAPI):
         get_account_dao().ensure_table()
         get_otp_verification_dao().ensure_table()
         get_registration_token_dao().ensure_table()
+        get_session_dao().ensure_table()
+        get_organisation_dao().ensure_tables()
     yield
 
 
@@ -51,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(items.router)
     app.include_router(auth.router)
+    app.include_router(organisations.router)
 
     @app.get("/", tags=["root"])
     def root() -> dict[str, str]:

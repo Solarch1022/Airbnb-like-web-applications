@@ -1,3 +1,6 @@
+from app.dependencies.auth import require_authenticated_user
+from app.models.auth import CurrentUser
+
 import jwt
 
 from fastapi import (
@@ -155,3 +158,12 @@ def refresh(
     return RefreshResponse(
         access_token=access_token,
     )
+
+@router.get(
+    "/me",
+    response_model=CurrentUser,
+)
+def get_me(
+    current_user: CurrentUser = Depends(require_authenticated_user),
+) -> CurrentUser:
+    return current_user
