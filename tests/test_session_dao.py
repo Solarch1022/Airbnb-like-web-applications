@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
+
+import pytest
 
 from app.dao.session_dao import (
     SessionDAO,
@@ -50,12 +53,17 @@ class FakeDynamoDBClient:
         self.create_table_call = None
         self.waiter = FakeWaiter()
         self.update_time_to_live_call = None
+        self.ttl_description = {"TimeToLiveStatus": "DISABLED"}
+
+    def describe_time_to_live(self, TableName):
+        return {"TimeToLiveDescription": self.ttl_description}
 
     def update_time_to_live(
         self,
         **kwargs,
     ):
         self.update_time_to_live_call = kwargs
+        self.ttl_description = {"TimeToLiveStatus": "ENABLED", "AttributeName": "ttl"}
 
     def describe_table(self, TableName):
         if not self.table_exists:
@@ -265,3 +273,58 @@ def test_ensure_table_creates_table_when_table_does_not_exist():
             "AttributeName": "ttl",
         },
     }
+
+
+@pytest.mark.parametrize("ttl_status", ["ENABLED", "ENABLING"])
+def test_ensure_table_skips_already_configured_ttl(ttl_status):
+    client = FakeDynamoDBClient()
+    client.ttl_description = {"TimeToLiveStatus": ttl_status, "AttributeName": "ttl"}
+    SessionDAO(client, "sessions").ensure_table()
+    assert client.create_table_call is None
+    assert client.update_time_to_live_call is None
+
+
+def test_repeated_bootstrap_enables_ttl_only_once():
+    client = FakeDynamoDBClient()
+    original_update = client.update_time_to_live
+    client.update_time_to_live = Mock(side_effect=original_update)
+    dao = SessionDAO(client, "sessions")
+    dao.ensure_table()
+    dao.ensure_table()
+    assert client.update_time_to_live.call_count == 1
+
+
+@pytest.mark.parametrize("description", [
+    {"TimeToLiveStatus": "ENABLED", "AttributeName": "wrong"},
+    {"TimeToLiveStatus": "ENABLING", "AttributeName": "wrong"},
+    {"TimeToLiveStatus": "DISABLING", "AttributeName": "ttl"},
+])
+def test_bootstrap_does_not_silently_accept_incompatible_ttl(description):
+    client = FakeDynamoDBClient()
+    client.ttl_description = description
+    with pytest.raises(RuntimeError):
+        SessionDAO(client, "sessions").ensure_table()
+    assert client.update_time_to_live_call is None
+
+
+def test_concurrent_ttl_enable_is_verified_after_validation_error():
+    client = FakeDynamoDBClient()
+    client.describe_time_to_live = Mock(side_effect=[
+        {"TimeToLiveDescription": {"TimeToLiveStatus": "DISABLED"}},
+        {"TimeToLiveDescription": {"TimeToLiveStatus": "ENABLING", "AttributeName": "ttl"}},
+    ])
+    client.update_time_to_live = Mock(side_effect=ClientError(
+        {"Error": {"Code": "ValidationException"}}, "UpdateTimeToLive",
+    ))
+    SessionDAO(client, "sessions").ensure_table()
+    assert client.describe_time_to_live.call_count == 2
+
+
+@pytest.mark.parametrize("code", ["ValidationException", "AccessDeniedException", "InternalServerError"])
+def test_ttl_configuration_failure_is_not_swallowed(code):
+    client = FakeDynamoDBClient()
+    error = ClientError({"Error": {"Code": code}}, "UpdateTimeToLive")
+    client.update_time_to_live = Mock(side_effect=error)
+    with pytest.raises(ClientError) as caught:
+        SessionDAO(client, "sessions").ensure_table()
+    assert caught.value is error

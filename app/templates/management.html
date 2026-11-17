@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Organisation management</title>
 <style>
-body{font:16px system-ui,sans-serif;color:#243336;background:#f4f7f5;margin:0}main{max-width:800px;margin:64px auto;padding:24px}section{background:white;padding:28px;border-radius:16px;margin:20px 0;border:1px solid #dbe4df}h1{font-size:32px}label{display:block;margin:16px 0}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #aebeb6;border-radius:8px;font:inherit}button{font:inherit;padding:11px 18px;background:#20684f;color:white;border:0;border-radius:8px;cursor:pointer;margin:4px}button:disabled{opacity:.5;cursor:wait}p{line-height:1.6}#message{white-space:pre-wrap}small{color:#52675e}[hidden]{display:none!important}
+body{font:16px system-ui,sans-serif;color:#243336;background:#f4f7f5;margin:0}main{max-width:800px;margin:64px auto;padding:24px}section{background:white;padding:28px;border-radius:16px;margin:20px 0;border:1px solid #dbe4df}h1{font-size:32px}label{display:block;margin:16px 0}input,textarea,select{box-sizing:border-box;width:100%;padding:12px;border:1px solid #aebeb6;border-radius:8px;font:inherit}button{font:inherit;padding:11px 18px;background:#20684f;color:white;border:0;border-radius:8px;cursor:pointer;margin:4px}button:disabled{opacity:.5;cursor:not-allowed}textarea{min-height:90px}article{border-top:1px solid #dbe4df;padding:14px 0}.property-row{display:flex;justify-content:space-between;align-items:center;gap:12px}fieldset{border:0;padding:0;margin:0}p{line-height:1.6}#message{white-space:pre-wrap}small{color:#52675e}[hidden]{display:none!important}
 </style>
 </head>
 <body><main>
@@ -24,43 +24,82 @@ body{font:16px system-ui,sans-serif;color:#243336;background:#f4f7f5;margin:0}ma
 <button>Create organisation</button></form><small>You will become the admin of this organisation.</small></section>
 <section id="dashboard" hidden><h2 id="org-name"></h2><p id="org-role"></p>
 <div id="property-guidance" hidden><h3>Next: create your first property</h3>
-<p>Your organisation is ready. Property creation will be available when the property-management feature is released.</p></div>
-<p id="member-guidance" hidden>Contact your organisation admin to manage properties.</p>
+<p>Create a draft below, then save your listing details. Publishing will follow in the provisioning task.</p></div>
+<p id="member-guidance" hidden>You can view properties. Contact your organisation admin to make changes.</p>
+<h3>Properties</h3><button id="reload-properties" type="button">Reload properties</button>
+<button id="new-property" type="button" hidden>Create property</button>
+<div id="property-list"></div><button id="more-properties" type="button" hidden>Load more</button>
+<form id="property-form" hidden><h3 id="property-editor-title">Create property</h3>
+<p id="property-version"></p><fieldset id="property-fields">
+<label>Title<input id="property-title" maxlength="100" required></label>
+<label>Description<textarea id="property-description" maxlength="5000"></textarea></label>
+<label>Address<input id="property-address" maxlength="500"></label>
+<label>Property type<input id="property-type" maxlength="100"></label>
+<label>Price per night<input id="property-price" type="number" min="0.01" max="9999999999.99" step="0.01"></label>
+<label>Currency (three uppercase letters)<input id="property-currency" pattern="[A-Z]{3}" maxlength="3" placeholder="AUD"></label>
+<label>Maximum guests<input id="property-guests" type="number" min="1" max="1000" step="1"></label>
+<label>Image URLs (one HTTP/HTTPS URL per line, up to 20)<textarea id="property-images"></textarea></label>
+<label>Booking mode<select id="property-mode"><option value="">Choose during setup</option><option value="INSTANT">INSTANT</option><option value="REQUEST">REQUEST</option></select></label>
+</fieldset>
+<button id="save-property">Save draft</button><button id="cancel-property" type="button">Close</button>
+<small>Only the title is required for a draft. Other supplied values must be valid. Drafts are private and cannot be booked.</small>
+</form>
 </section></div>
 </main><script>
 let accessToken = null;
 let pendingCreation = null;
+let selectedOrganisation = null;
+let selectedAdmin = false;
+let propertyEpoch = 0;
+let nextPropertyCursor = null;
+let editingProperty = null;
+let propertyBusy = false;
+let propertyListEpoch = 0;
+const propertyCreations = new Map();
 const byId = id => document.getElementById(id);
 function message(text) { byId('message').textContent = text; }
 function resetSession() {
   accessToken = null; pendingCreation = null;
+  selectedOrganisation = null; propertyEpoch++; propertyCreations.clear();
+  byId("property-form").hidden = true; byId("property-list").replaceChildren();
   byId('management').hidden = true; byId('signin').hidden = false;
   byId('dashboard').hidden = true;
   byId('organisations').replaceChildren(); byId('org-name').textContent = '';
 }
 async function api(path, options = {}) {
+  const requestToken = accessToken;
   const response = await fetch(path, {
     ...options,
     headers: {'Content-Type':'application/json',
       ...(accessToken ? {Authorization:`Bearer ${accessToken}`} : {}),
       ...options.headers},
   });
-  const body = await response.json();
+  const body = response.status === 204 ? null : await response.json();
   if (!response.ok) {
-    if (response.status === 401) resetSession();
-    throw new Error(typeof body.detail === 'string' ? body.detail : 'Please check your details and try again.');
+    if (response.status === 401 && requestToken === accessToken) resetSession();
+    const detail = typeof body.detail === 'string' ? body.detail :
+      Array.isArray(body.detail) ? body.detail.map(item => `${item.loc.slice(1).join('.')}: ${item.msg}`).join('\n') : 'Please check your details and try again.';
+    const stalePropertyEdit = response.status === 409 && path.includes('/properties/') && ['PATCH','DELETE'].includes(options.method);
+    throw new Error(stalePropertyEdit ? `${detail}. Reload properties and reopen the latest record before editing again.` : detail);
   }
   return body;
 }
 async function selectOrganisation(id) {
+  const epoch = ++propertyEpoch;
+  selectedOrganisation = null; byId('dashboard').hidden = true;
+  byId('property-form').hidden = true; byId('property-list').replaceChildren();
   const context = await api(`/organisations/${encodeURIComponent(id)}`);
   const admin = context.membership.role === 'admin';
   if (admin) await api(`/organisations/${encodeURIComponent(id)}/admin`);
+  if (epoch !== propertyEpoch) return;
+  selectedOrganisation = id; selectedAdmin = admin;
+  byId('new-property').hidden = !admin;
   byId('org-name').textContent = context.organisation.name;
   byId('org-role').textContent = `Your role: ${context.membership.role}`;
   byId('property-guidance').hidden = !admin;
   byId('member-guidance').hidden = admin;
   byId('dashboard').hidden = false;
+  await loadProperties();
 }
 async function loadOrganisations() {
   const contexts = await api('/me/organisations');
@@ -100,6 +139,122 @@ byId('create-form').onsubmit = async event => {
     message('Organisation created. Your management workspace is ready.');
   } catch (error) { message(error.message); }
   finally { button.disabled = false; }
+};
+function propertiesPath(org = selectedOrganisation) {
+  return `/organisations/${encodeURIComponent(org)}/properties`;
+}
+async function loadProperties(more = false) {
+  if (!selectedOrganisation) return;
+  const org = selectedOrganisation, epoch = propertyEpoch;
+  const cursor = more ? nextPropertyCursor : null;
+  if (!more) propertyListEpoch++;
+  const listEpoch = propertyListEpoch;
+  if (!more) {
+    byId('property-form').hidden = true; editingProperty = null;
+    byId('property-list').replaceChildren(); nextPropertyCursor = null;
+  }
+  byId('more-properties').hidden = true;
+  const page = await api(`${propertiesPath(org)}?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+  if (epoch !== propertyEpoch || org !== selectedOrganisation || listEpoch !== propertyListEpoch) return;
+  const list = byId('property-list');
+  if (!more && !page.items.length) list.textContent = 'No properties yet.';
+  for (const property of page.items) {
+    const row = document.createElement('article'); row.className = 'property-row';
+    const label = document.createElement('span');
+    label.textContent = `${property.title} · ${property.status} · ${property.booking_mode || 'Mode not set'} · v${property.version}`;
+    const actions = document.createElement('div');
+    const open = document.createElement('button'); open.type = 'button';
+    open.textContent = selectedAdmin && property.status === 'DRAFT' ? 'Edit' : 'View';
+    open.onclick = async () => {
+      try {
+        const current = await api(`${propertiesPath(org)}/${encodeURIComponent(property.property_id)}`);
+        if (epoch === propertyEpoch && org === selectedOrganisation) showProperty(current);
+      } catch (error) { message(error.message); }
+    };
+    actions.append(open);
+    if (selectedAdmin && property.status === 'DRAFT') {
+      const archive = document.createElement('button'); archive.type = 'button'; archive.textContent = 'Archive';
+      archive.onclick = async () => {
+        if (propertyBusy || !confirm(`Archive "${property.title}"? The record and history will be retained.`)) return;
+        propertyBusy = true; archive.disabled = true;
+        try {
+          await api(`${propertiesPath(org)}/${encodeURIComponent(property.property_id)}?expected_version=${property.version}`, {method:'DELETE'});
+          if (epoch === propertyEpoch && org === selectedOrganisation) { await loadProperties(); message('Property archived.'); }
+        } catch (error) { message(error.message); }
+        finally { propertyBusy = false; archive.disabled = false; }
+      };
+      actions.append(archive);
+    }
+    const deletable = ['DRAFT','ARCHIVED'].includes(property.status) && !property.published_at && !property.has_booking_history;
+    if (selectedAdmin && deletable) {
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Delete draft';
+      remove.onclick = async () => {
+        if (propertyBusy || !confirm(`Permanently delete draft "${property.title}"? This cannot be undone.`)) return;
+        propertyBusy = true; remove.disabled = true;
+        try {
+          await api(`${propertiesPath(org)}/${encodeURIComponent(property.property_id)}/draft?expected_version=${property.version}`, {method:'DELETE'});
+          if (epoch === propertyEpoch && org === selectedOrganisation) { await loadProperties(); message('Draft permanently deleted.'); }
+        } catch (error) { message(error.message); }
+        finally { propertyBusy = false; remove.disabled = false; }
+      };
+      actions.append(remove);
+    }
+    row.append(label, actions); list.append(row);
+  }
+  nextPropertyCursor = page.next_cursor;
+  byId('more-properties').hidden = !nextPropertyCursor;
+}
+function showProperty(property = null) {
+  editingProperty = property;
+  const editable = selectedAdmin && (!property || property.status === 'DRAFT');
+  byId('property-form').reset();
+  const fields = {title:'title',description:'description',address:'address',type:'property_type',price:'price_per_night',currency:'currency',guests:'max_guests',mode:'booking_mode'};
+  for (const [id, field] of Object.entries(fields)) byId(`property-${id}`).value = property?.[field] ?? '';
+  byId('property-images').value = (property?.images || []).join('\n');
+  byId('property-fields').disabled = !editable;
+  byId('save-property').hidden = !editable;
+  byId('property-editor-title').textContent = property ? `${editable ? 'Edit' : 'View'} property` : 'Create property';
+  byId('property-version').textContent = property ? `${property.status} · version ${property.version}` : 'New private draft';
+  byId('property-form').hidden = false;
+}
+byId('property-form').onsubmit = async event => {
+  event.preventDefault();
+  if (propertyBusy || !selectedOrganisation || !selectedAdmin) return;
+  propertyBusy = true; const button = event.submitter; button.disabled = true;
+  const org = selectedOrganisation, epoch = propertyEpoch, current = editingProperty;
+  const optional = id => byId(`property-${id}`).value.trim() || null;
+  const payload = {
+    title:byId('property-title').value.trim(), description:optional('description'), address:optional('address'),
+    property_type:optional('type'), price_per_night:optional('price'), currency:optional('currency'),
+    max_guests:optional('guests') === null ? null : Number(optional('guests')),
+    images:byId('property-images').value.split('\n').map(value => value.trim()).filter(Boolean),
+    booking_mode:optional('mode'),
+  };
+  const fingerprint = JSON.stringify([org,payload]);
+  try {
+    if (current) {
+      payload.expected_version = current.version;
+      await api(`${propertiesPath(org)}/${encodeURIComponent(current.property_id)}`, {method:'PATCH',body:JSON.stringify(payload)});
+    } else {
+      if (!propertyCreations.has(fingerprint)) propertyCreations.set(fingerprint,crypto.randomUUID());
+      await api(propertiesPath(org), {method:'POST',headers:{'Idempotency-Key':propertyCreations.get(fingerprint)},body:JSON.stringify(payload)});
+      propertyCreations.delete(fingerprint);
+    }
+    if (epoch === propertyEpoch && org === selectedOrganisation) { await loadProperties(); message(current ? 'Draft saved.' : 'Property draft created.'); }
+  } catch (error) { message(error.message); }
+  finally { propertyBusy = false; button.disabled = false; }
+};
+byId('new-property').onclick = () => { if (!propertyBusy) showProperty(); };
+byId('cancel-property').onclick = () => { if (!propertyBusy) byId('property-form').hidden = true; };
+byId('reload-properties').onclick = async () => {
+  if (propertyBusy) return;
+  try { await loadProperties(); message('Properties reloaded. Open the latest record to continue.'); }
+  catch (error) { message(error.message); }
+};
+byId('more-properties').onclick = async event => {
+  event.target.disabled = true;
+  try { await loadProperties(true); } catch (error) { message(error.message); }
+  finally { event.target.disabled = false; }
 };
 byId('signout').onclick = () => { resetSession(); message('Signed out of this page.'); };
 </script></body></html>
