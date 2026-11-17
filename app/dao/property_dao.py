@@ -14,7 +14,7 @@ def _property_from_storage(data: dict) -> dict:
     data = dict(data)
     # boto3 deserialises all DynamoDB numbers as Decimal. Restore integer
     # fields at this storage boundary without weakening strict API validation.
-    for name in ("max_guests", "version"):
+    for name in ("max_guests", "version", "min_nights", "max_nights", "preparation_nights"):
         value = data.get(name)
         if isinstance(value, Decimal) and value.is_finite() and value == value.to_integral_value():
             data[name] = int(value)
@@ -96,17 +96,17 @@ class PropertyDAO:
             }},
         ])
 
-    def replace_property(self, property: Property, account_id: str, expected_version: int) -> None:
+    def replace_property(self, property: Property, account_id: str, expected_version: int, expected_status: str = "DRAFT") -> None:
         self._client.transact_write_items(TransactItems=[
             *self._permission_checks(account_id, property.organisation_id),
             {"Put": {
                 "TableName": self._table_name,
                 "Item": _to_dynamodb_item(property.model_dump(mode="json")),
-                "ConditionExpression": "attribute_exists(property_id) AND #version = :version AND #status = :draft",
+                "ConditionExpression": "attribute_exists(property_id) AND #version = :version AND #status = :expected_status",
                 "ExpressionAttributeNames": {"#version": "version", "#status": "status"},
                 "ExpressionAttributeValues": {
                     ":version": {"N": str(expected_version)},
-                    ":draft": {"S": "DRAFT"},
+                    ":expected_status": {"S": expected_status},
                 },
             }},
         ])

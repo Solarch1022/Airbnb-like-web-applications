@@ -193,5 +193,6 @@ Organisation admins can create private drafts, edit with optimistic version chec
 archive to retain history, and permanently delete eligible never-published drafts from `/management`. Active organisation members have read
 access. Creation retries are idempotent and lists are paginated using a scoped
 DynamoDB Query. See [the property API, lifecycle decisions and manual verification
-guide](docs/property-management.md). Publishing/readiness belongs to task 04;
-availability and booking workflows belong to later phases.
+guide](docs/property-management.md). Provisioning, readiness, publish/offline transitions and public discovery are described
+in [the 04/04a implementation and manual review guide](docs/property-provisioning.md).
+Availability and booking workflows belong to later phases.

@@ -58,10 +58,10 @@ class FakePropertyDAO:
         self.deleted.add(key)
         del self.properties[key]
 
-    def replace_property(self, property, account_id, expected_version):
+    def replace_property(self, property, account_id, expected_version, expected_status="DRAFT"):
         key = (property.organisation_id, property.property_id)
         existing = self.properties.get(key)
-        if existing is None or existing.version != expected_version or existing.status != "DRAFT":
+        if existing is None or existing.version != expected_version or existing.status != expected_status:
             raise transaction_error(["None"] * 3 + ["ConditionalCheckFailed"])
         self.properties[key] = property.model_copy(deep=True)
 

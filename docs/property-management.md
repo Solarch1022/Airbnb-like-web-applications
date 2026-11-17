@@ -3,6 +3,13 @@
 GitHub: https://github.com/Solarch1022/Airbnb-like-web-applications/issues/15
 Notion: https://app.notion.com/p/3f78a059477280c59a99ff4b1710b806
 
+## Current phase continuation
+
+This document records the 03 increment. Task 04/04a now extends it with ACTIVE/INACTIVE,
+editing outside ARCHIVED, readiness, publication, offline transitions and separate public
+discovery. See [the current provisioning contract and manual checklist](property-provisioning.md)
+for those overrides; the historical 03-only scope below does not describe the complete Phase 2 API.
+
 ## MVP decisions for this increment
 
 - Properties belong to an organisation. `created_by` is audit information, not a separate owner permission or platform admin role.

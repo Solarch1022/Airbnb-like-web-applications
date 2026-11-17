@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.dao.item_dao import get_item_dao
 from app.dao.account_dao import get_account_dao
 from app.dao.otp_verification_dao import get_otp_verification_dao
-from app.routers import health, items, auth, organisations, properties
+from app.routers import health, items, auth, organisations, properties, listings
 from app.dao.organisation_dao import get_organisation_dao
 from app.dao.property_dao import get_property_dao
 from app.dao.session_dao import get_session_dao
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(organisations.router)
     app.include_router(properties.router)
+    app.include_router(listings.router)
 
     @app.get("/", tags=["root"])
     def root() -> dict[str, str]:

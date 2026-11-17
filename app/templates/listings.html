@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Property listings</title><style>
+body{font:16px system-ui,sans-serif;background:#f4f7f5;color:#243336;margin:0}main{max-width:1000px;margin:48px auto;padding:24px}article{background:white;border:1px solid #dbe4df;padding:24px;border-radius:16px;margin:20px 0}img{width:100%;max-height:300px;object-fit:cover;border-radius:10px}button,input{font:inherit;padding:12px;border-radius:8px;border:1px solid #aebeb6}button{background:#20684f;color:white;cursor:pointer}input{max-width:90%}p{line-height:1.6}[hidden]{display:none!important}
+</style></head><body><main><h1>Property listings</h1><p>Explore published properties. Date availability and booking will follow in a later release.</p>
+<button id="refresh" type="button">Refresh listings</button>
+<p id="message" role="status" aria-live="polite"></p><div id="listings"></div><button id="more" hidden>Load more</button>
+</main><script>
+const byId = id => document.getElementById(id);
+const listingOrg = new URLSearchParams(location.search).get('organisation_id') || '';
+let cursor = null, currentOrg = null, generation = 0, found = false;
+async function load(more = false) {
+  if (!more) { currentOrg = listingOrg; cursor = null; generation++; found = false; byId('listings').replaceChildren(); }
+  if (!currentOrg) { byId('message').textContent = 'Open a shared listing link to browse available properties.'; return; }
+  const org = currentOrg, epoch = generation;
+  byId('more').hidden = true;
+  const response = await fetch(`/public/organisations/${encodeURIComponent(org)}/properties?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+  if (epoch !== generation) return;
+  if (!response.ok) throw new Error(response.status === 404 ? 'No public listings are available for this organisation.' : 'Could not load listings. Try again.');
+  const page = await response.json();
+  if (epoch !== generation) return;
+  for (const property of page.items) {
+    found = true;
+    const card = document.createElement('article');
+    const heading = document.createElement('h2'); heading.textContent = property.title; card.append(heading);
+    const image = document.createElement('img'); image.src = property.images[0]; image.alt = property.title; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer'; image.onerror = () => { image.hidden = true; const fallback = document.createElement('p'); fallback.textContent = 'Image currently unavailable.'; image.after(fallback); }; card.append(image);
+    for (const text of [property.public_location,property.description,`${property.currency} ${property.price_per_night} / night · up to ${property.max_guests} guests`,`${property.min_nights}–${property.max_nights} nights · ${property.booking_mode === 'INSTANT' ? 'Instant booking mode' : 'Request approval mode'}`]) {
+      const paragraph = document.createElement('p'); paragraph.textContent = text; card.append(paragraph);
+    }
+    byId('listings').append(card);
+  }
+  cursor = page.next_cursor; byId('more').hidden = !cursor;
+  byId('message').textContent = found ? '' : cursor ? 'No published properties on this page. Load more to continue.' : 'No published properties yet.';
+}
+byId('refresh').onclick = async () => { try { await load(); } catch(error) { byId('message').textContent = error.message; } };
+byId('more').onclick = async event => { event.target.disabled = true; try { await load(true); } catch(error) { byId('message').textContent = error.message; } finally { event.target.disabled = false; } };
+load().catch(error => { byId('message').textContent = error.message; });
+</script></body></html>

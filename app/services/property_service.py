@@ -4,11 +4,13 @@ from hashlib import sha256
 import json
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from botocore.exceptions import ClientError
 from fastapi import Depends
 
 from app.dao.property_dao import PropertyDAO, get_property_dao
-from app.models.property import Property, PropertyCreate, PropertyPage, PropertyStatus, PropertyUpdate
+from app.models.property import Property, PropertyCreate, PropertyPage, PropertyStatus, PropertyUpdate, PropertyReadiness, ReadinessIssue, PublicProperty, PublicPropertyPage
 
 
 class PropertyNotFoundError(ValueError):
@@ -25,6 +27,16 @@ class PropertyPermissionError(ValueError):
 
 class PropertyDeletedError(ValueError):
     pass
+
+
+class PropertyReadinessError(ValueError):
+    def __init__(self, issues: list[ReadinessIssue]) -> None:
+        self.issues = issues
+        super().__init__("Property configuration is incomplete or invalid")
+
+
+PROVISIONING_FIELDS = {"public_location", "min_nights", "max_nights", "preparation_nights", "blocked_dates"}
+SUPPORTED_CURRENCIES = {"AUD", "USD", "EUR", "GBP", "NZD"}
 
 
 class PropertyCursorError(ValueError):
@@ -67,9 +79,12 @@ class PropertyService:
     ) -> Property:
         request_id = sha256(json.dumps([account_id, organisation_id, idempotency_key]).encode()).hexdigest()
         fingerprint = sha256(payload.model_dump_json().encode()).hexdigest()
+        legacy_fingerprint = None
+        if all(getattr(payload, field) in (None, []) for field in PROVISIONING_FIELDS):
+            legacy_fingerprint = sha256(payload.model_dump_json(exclude=PROVISIONING_FIELDS).encode()).hexdigest()
         existing = self._property_dao.get_creation_request(request_id)
         if existing:
-            return self._replay(existing, fingerprint)
+            return self._replay(existing, fingerprint, legacy_fingerprint)
         now = datetime.now(timezone.utc)
         property = Property(
             **payload.model_dump(), property_id=str(uuid4()), organisation_id=organisation_id,
@@ -82,19 +97,31 @@ class PropertyService:
             self._check_transaction_error(exc)
             existing = self._property_dao.get_creation_request(request_id)
             if existing:
-                return self._replay(existing, fingerprint)
+                return self._replay(existing, fingerprint, legacy_fingerprint)
             raise PropertyConflictError("Creation conflicted; retry with the same Idempotency-Key") from exc
         return property
 
     def update(self, property: Property, account_id: str, payload: PropertyUpdate) -> Property:
         self._check_version(property, payload.expected_version)
-        if property.status != PropertyStatus.DRAFT:
+        if property.status == PropertyStatus.ARCHIVED:
             raise PropertyConflictError("Archived properties cannot be edited")
         data = property.model_dump()
         data.update(payload.model_dump(exclude_unset=True, exclude={"expected_version"}))
         data.update(updated_at=datetime.now(timezone.utc), version=property.version + 1)
-        updated = Property.model_validate(data)
-        self._replace(updated, account_id, property.version)
+        try:
+            updated = Property.model_validate(data)
+        except ValidationError as exc:
+            raise PropertyReadinessError([ReadinessIssue(field="stay_rules", message="Maximum nights must be at least minimum nights")]) from exc
+        # Calendar allocation changes need booking conflict checks in later phases.
+        # Fail closed until that workflow exists rather than overwriting reserved nights.
+        if property.has_booking_history and any(
+            getattr(updated, field) != getattr(property, field)
+            for field in ("blocked_dates", "preparation_nights")
+        ):
+            raise PropertyConflictError("Calendar changes on properties with booking history require booking conflict checks")
+        if updated.status == PropertyStatus.ACTIVE:
+            self._require_ready(updated)
+        self._replace(updated, account_id, property.version, property.status)
         return updated
 
     def archive(self, property: Property, account_id: str, expected_version: int) -> Property:
@@ -105,7 +132,7 @@ class PropertyService:
             "status": PropertyStatus.ARCHIVED, "version": property.version + 1,
             "updated_at": datetime.now(timezone.utc),
         })
-        self._replace(archived, account_id, property.version)
+        self._replace(archived, account_id, property.version, property.status)
         return archived
 
     def delete_draft(self, property: Property, account_id: str, expected_version: int) -> None:
@@ -119,9 +146,75 @@ class PropertyService:
             self._check_transaction_error(exc)
             raise PropertyConflictError("Property changed or is no longer eligible for deletion; reload before retrying") from exc
 
-    def _replace(self, property: Property, account_id: str, version: int) -> None:
+    def readiness(self, property: Property) -> PropertyReadiness:
+        issues = []
+        required = {
+            "title": "Add a title", "description": "Add a description", "address": "Add the private property address",
+            "public_location": "Add a public city or area", "property_type": "Add a property type",
+            "price_per_night": "Set a positive nightly price", "currency": "Choose a currency",
+            "max_guests": "Set guest capacity", "images": "Add at least one HTTP/HTTPS image URL",
+            "booking_mode": "Explicitly choose INSTANT or REQUEST", "min_nights": "Set minimum stay nights",
+            "max_nights": "Set maximum stay nights", "preparation_nights": "Set preparation nights (0 is allowed)",
+        }
+        for field, message in required.items():
+            value = getattr(property, field)
+            if value is None or value == [] or value == "":
+                issues.append(ReadinessIssue(field=field, message=message))
+        if property.currency and property.currency not in SUPPORTED_CURRENCIES:
+            issues.append(ReadinessIssue(field="currency", message="Supported currencies: AUD, USD, EUR, GBP, NZD"))
+        ready = not issues
+        return PropertyReadiness(
+            ready=ready, can_publish=ready and property.status in (PropertyStatus.DRAFT, PropertyStatus.INACTIVE),
+            version=property.version, status=property.status, issues=issues,
+        )
+
+    def _require_ready(self, property: Property) -> None:
+        readiness = self.readiness(property)
+        if not readiness.ready:
+            raise PropertyReadinessError(readiness.issues)
+
+    def publish(self, property: Property, account_id: str, expected_version: int) -> Property:
+        self._check_version(property, expected_version)
+        if property.status == PropertyStatus.ARCHIVED:
+            raise PropertyConflictError("Archived properties cannot be published")
+        self._require_ready(property)
+        if property.status == PropertyStatus.ACTIVE:
+            return property
+        now = datetime.now(timezone.utc)
+        published = property.model_copy(update={
+            "status": PropertyStatus.ACTIVE, "published_at": property.published_at or now,
+            "updated_at": now, "version": property.version + 1,
+        })
+        self._replace(published, account_id, property.version, property.status)
+        return published
+
+    def deactivate(self, property: Property, account_id: str, expected_version: int) -> Property:
+        self._check_version(property, expected_version)
+        if property.status == PropertyStatus.INACTIVE:
+            return property
+        if property.status != PropertyStatus.ACTIVE:
+            raise PropertyConflictError("Only active properties can be taken offline")
+        inactive = property.model_copy(update={
+            "status": PropertyStatus.INACTIVE, "updated_at": datetime.now(timezone.utc), "version": property.version + 1,
+        })
+        self._replace(inactive, account_id, property.version, property.status)
+        return inactive
+
+    def public_property(self, property: Property) -> PublicProperty:
+        if property.status != PropertyStatus.ACTIVE or not self.readiness(property).ready:
+            raise PropertyNotFoundError("Listing not found")
+        return PublicProperty.model_validate(property.model_dump())
+
+    def list_public(self, organisation_id: str, limit: int, cursor: str | None) -> PublicPropertyPage:
+        page = self.list(organisation_id, limit, cursor)
+        items = [self.public_property(property) for property in page.items
+                 if property.status == PropertyStatus.ACTIVE and self.readiness(property).ready]
+        # Preserve the physical query cursor even on an empty filtered page.
+        return PublicPropertyPage(items=items, next_cursor=page.next_cursor)
+
+    def _replace(self, property: Property, account_id: str, version: int, expected_status: str = "DRAFT") -> None:
         try:
-            self._property_dao.replace_property(property, account_id, version)
+            self._property_dao.replace_property(property, account_id, version, expected_status)
         except ClientError as exc:
             self._check_transaction_error(exc)
             raise PropertyConflictError("Property changed; reload before retrying") from exc
@@ -131,8 +224,8 @@ class PropertyService:
         if property.version != expected_version:
             raise PropertyConflictError("Property changed; reload before retrying")
 
-    def _replay(self, existing: dict, fingerprint: str) -> Property:
-        if existing["fingerprint"] != fingerprint:
+    def _replay(self, existing: dict, fingerprint: str, legacy_fingerprint: str | None = None) -> Property:
+        if existing["fingerprint"] != fingerprint and (legacy_fingerprint is None or existing["fingerprint"] != legacy_fingerprint):
             raise PropertyConflictError("Idempotency-Key was already used with different details")
         # Return the original creation response even if the listing has since been edited/archived.
         property = Property.model_validate(existing["property"])
