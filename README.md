@@ -177,7 +177,7 @@ Fixtures in `tests/conftest.py`:
 
 ## Next steps
 
-- Extend organisation permissions to property and booking resources.
+- Extend resource permissions to booking operations in the later booking phases.
 - Add pagination for the `list` (scan) endpoint or a GSI for query access patterns.
 - Add a Dockerfile and infrastructure-as-code (CloudFormation/CDK/Terraform) for the table.
 
@@ -185,3 +185,14 @@ Fixtures in `tests/conftest.py`:
 ## Organisation onboarding
 
 Open `/management` to sign in, create or select an organisation. See [the onboarding API, policies and verification guide](docs/organisation-onboarding.md).
+
+
+## Property management (Phase 2 / Notion 03)
+
+Organisation admins can create private drafts, edit with optimistic version checks,
+archive to retain history, and permanently delete eligible never-published drafts from `/management`. Active organisation members have read
+access. Creation retries are idempotent and lists are paginated using a scoped
+DynamoDB Query. See [the property API, lifecycle decisions and manual verification
+guide](docs/property-management.md). Provisioning, readiness, publish/offline transitions and public discovery are described
+in [the 04/04a implementation and manual review guide](docs/property-provisioning.md).
+Availability and booking workflows belong to later phases.

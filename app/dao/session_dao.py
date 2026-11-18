@@ -132,13 +132,44 @@ class SessionDAO:
                 TableName=self._table_name
             )
 
-        self._client.update_time_to_live(
+        self._ensure_ttl()
+
+    def _ttl_is_configured(self) -> bool:
+        description = self._client.describe_time_to_live(
             TableName=self._table_name,
-            TimeToLiveSpecification={
-                "Enabled": True,
-                "AttributeName": "ttl",
-            },
-        )
+        )["TimeToLiveDescription"]
+        ttl_status = description["TimeToLiveStatus"]
+        if ttl_status in ("ENABLED", "ENABLING"):
+            if description.get("AttributeName") != "ttl":
+                raise RuntimeError(
+                    f"Session table {self._table_name} has TTL configured on a different attribute"
+                )
+            return True
+        if ttl_status != "DISABLED":
+            raise RuntimeError(
+                f"Session table {self._table_name} TTL is {ttl_status}; retry after the transition completes"
+            )
+        return False
+
+    def _ensure_ttl(self) -> None:
+        if self._ttl_is_configured():
+            return
+        try:
+            self._client.update_time_to_live(
+                TableName=self._table_name,
+                TimeToLiveSpecification={
+                    "Enabled": True,
+                    "AttributeName": "ttl",
+                },
+            )
+        except ClientError as exc:
+            # Another startup may have enabled TTL after our describe call.
+            # Only accept the error if the desired configuration is now present.
+            if exc.response["Error"]["Code"] != "ValidationException":
+                raise
+            if not self._ttl_is_configured():
+                raise
+
 
 @lru_cache
 def get_session_dao() -> SessionDAO:
